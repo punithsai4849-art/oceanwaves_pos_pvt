@@ -1,6 +1,6 @@
 {% extends 'pos/base.html' %}
 {% load static %}
-{% block title %}Admin Dashboard — Ocean Waves{% endblock %}
+{% block title %}Admin Dashboard — OCEANWAVES{% endblock %}
 {% block content %}
 <div class="pg">
   <div class="pg-header">
@@ -10,6 +10,36 @@
     </div>
     <a href="{% url 'store_list' %}" class="btn-primary"><i class="fas fa-store"></i> Manage Stores</a>
   </div>
+
+  <!-- Priority Alerts -->
+  {% if unread_notifications %}
+  <div class="priority-section">
+    <div class="priority-card">
+      <div class="priority-hdr">
+        <h3><i class="fas fa-bell text-warning"></i> Priority Alerts</h3>
+        <button onclick="markAllRead()" class="btn-secondary" style="padding:4px 8px; font-size:11px;">Mark all read</button>
+      </div>
+      <div class="priority-list">
+        {% for n in unread_notifications %}
+        <a href="{{ n.link|default:'#' }}" class="priority-item p-{{ n.level|lower }}">
+          <div class="priority-icon">
+            {% if n.level == 'DANGER' %}<i class="fas fa-exclamation-triangle"></i>
+            {% elif n.level == 'WARNING' %}<i class="fas fa-bell"></i>
+            {% elif n.level == 'SUCCESS' %}<i class="fas fa-check-circle"></i>
+            {% else %}<i class="fas fa-info-circle"></i>{% endif %}
+          </div>
+          <div class="priority-content">
+            <div class="priority-title">{{ n.title }}</div>
+            <div class="priority-msg">{{ n.message }}</div>
+            <div class="priority-time">{{ n.created_at|timesince }} ago</div>
+          </div>
+          <i class="fas fa-chevron-right" style="font-size:10px; color:#cbd5e1; margin-top:10px;"></i>
+        </a>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
 
   {% if request.user.profile.role in 'AREAMANAGER,WHOLESALE_EXEC' %}
     <!-- Surface active OTP requests directly on Area Manager dashboard -->
@@ -102,4 +132,19 @@
     {% endfor %}
   </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  function markAllRead() {
+    fetch('{% url "mark_notifications_read" %}', {
+      method: 'POST',
+      headers: { 'X-CSRFToken': '{{ csrf_token }}' }
+    }).then(() => {
+      const ps = document.querySelector('.priority-section');
+      if(ps) ps.style.display = 'none';
+      window.location.reload();
+    });
+  }
+</script>
 {% endblock %}

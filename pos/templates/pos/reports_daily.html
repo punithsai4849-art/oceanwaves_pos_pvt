@@ -1,0 +1,257 @@
+{% extends 'pos/base.html' %}
+{% load static %}
+{% block title %}Daily Report — {{ store.name }}{% endblock %}
+
+{% block extra_css %}
+<style>
+.rpt-hero{background:linear-gradient(135deg,#1a5276 0%,#1abc9c 100%);border-radius:16px;padding:28px 32px;color:#fff;margin-bottom:28px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;}
+.rpt-hero h1{margin:0;font-size:1.6rem;font-weight:700;display:flex;align-items:center;gap:10px;}
+.rpt-hero p{margin:4px 0 0;opacity:.85;font-size:14px;}
+.rpt-actions{display:flex;gap:10px;flex-wrap:wrap;}
+.store-picker{display:flex;align-items:center;gap:10px;margin-bottom:20px;background:var(--card);padding:14px 20px;border-radius:12px;box-shadow:var(--shadow);}
+.store-picker label{font-weight:600;color:var(--muted);font-size:13px;white-space:nowrap;}
+.date-filter{display:flex;align-items:center;gap:10px;background:var(--card);padding:14px 20px;border-radius:12px;box-shadow:var(--shadow);}
+.rpt-kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px;margin-bottom:24px;}
+.rpt-kpi{background:var(--card);border-radius:12px;padding:18px 20px;box-shadow:var(--shadow);border-left:4px solid var(--accent);}
+.rpt-kpi.green{border-color:#27ae60;}
+.rpt-kpi.red{border-color:#e74c3c;}
+.rpt-kpi.orange{border-color:#f39c12;}
+.rpt-kpi.purple{border-color:#8e44ad;}
+.rpt-kpi-val{font-size:1.4rem;font-weight:800;color:var(--text);}
+.rpt-kpi-lbl{font-size:12px;color:var(--muted);margin-top:4px;}
+.section-card{background:var(--card);border-radius:14px;box-shadow:var(--shadow);margin-bottom:24px;overflow:hidden;}
+.section-hdr{display:flex;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid var(--border);background:linear-gradient(90deg,rgba(26,82,118,.07),transparent);}
+.section-hdr h3{margin:0;font-size:1rem;font-weight:700;color:var(--text);display:flex;align-items:center;gap:8px;}
+.rpt-table{width:100%;border-collapse:collapse;}
+.rpt-table thead th{background:linear-gradient(90deg,#1a5276,#1abc9c);color:#fff;padding:12px 14px;text-align:right;font-size:12px;font-weight:700;white-space:nowrap;}
+.rpt-table thead th:first-child,.rpt-table thead th:nth-child(2){text-align:left;}
+.rpt-table tbody td{padding:10px 14px;border-bottom:1px solid var(--border);font-size:13px;text-align:right;}
+.rpt-table tbody td:first-child,.rpt-table tbody td:nth-child(2){text-align:left;}
+.rpt-table tbody tr:hover{background:rgba(26,188,156,.06);}
+.rpt-table tbody tr:nth-child(even){background:rgba(0,0,0,.025);}
+.rpt-table tfoot td{padding:11px 14px;font-weight:700;background:rgba(26,82,118,.08);font-size:13px;text-align:right;}
+.profit-pos{color:#27ae60;font-weight:700;}
+.profit-neg{color:#e74c3c;font-weight:700;}
+.summary-grid{display:grid;grid-template-columns:1fr 1fr;gap:0;}
+.sum-row{display:flex;justify-content:space-between;padding:12px 22px;border-bottom:1px solid var(--border);}
+.sum-row:last-child{border-bottom:none;}
+.sum-lbl{font-size:13px;color:var(--muted);font-weight:500;}
+.sum-val{font-size:14px;font-weight:700;color:var(--text);}
+.sum-val.green{color:#27ae60;}
+.sum-val.red{color:#e74c3c;}
+.sum-val.blue{color:var(--accent);}
+.exp-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;}
+.exp-daily{background:rgba(243,156,18,.15);color:#d68910;}
+.exp-monthly{background:rgba(142,68,173,.15);color:#7d3c98;}
+.empty-msg{text-align:center;padding:32px;color:var(--muted);}
+.no-data-row td{text-align:center;padding:32px;color:var(--muted);}
+@media(max-width:768px){.rpt-table{display:block;overflow-x:auto;}.summary-grid{grid-template-columns:1fr;}}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pg">
+
+  <!-- Hero -->
+  <div class="rpt-hero">
+    <div>
+      <h1><i class="fas fa-calendar-day"></i> Daily Report</h1>
+      <p>{{ store.name }} &nbsp;·&nbsp; {{ report_date|date:"d F Y" }}</p>
+    </div>
+    <div class="rpt-actions">
+      <a href="{% url 'export_daily_excel' %}?date={{ report_date|date:'Y-m-d' }}{% if profile.is_superadmin %}&store_id={{ store.id }}{% endif %}"
+         class="btn-primary" style="text-decoration:none;">
+        <i class="fas fa-file-excel"></i> Export Excel
+      </a>
+      <button onclick="window.print()" class="btn-secondary">
+        <i class="fas fa-print"></i> Print
+      </button>
+    </div>
+  </div>
+
+  <!-- Filters row -->
+  <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:24px;">
+    {% if profile.is_superadmin and all_stores %}
+    <div class="store-picker">
+      <label><i class="fas fa-store"></i> Store:</label>
+      <form method="GET" style="display:flex;gap:8px;align-items:center;">
+        <input type="hidden" name="date" value="{{ report_date|date:'Y-m-d' }}">
+        <select name="store_id" class="date-input" onchange="this.form.submit()" style="min-width:160px;">
+          {% for s in all_stores %}
+          <option value="{{ s.id }}" {% if s.id == store.id %}selected{% endif %}>{{ s.name }}</option>
+          {% endfor %}
+        </select>
+      </form>
+    </div>
+    {% endif %}
+    <div class="date-filter">
+      <label><i class="fas fa-calendar"></i> Date:</label>
+      <form method="GET" style="display:flex;gap:8px;align-items:center;">
+        {% if profile.is_superadmin %}<input type="hidden" name="store_id" value="{{ store.id }}">{% endif %}
+        <input type="date" name="date" value="{{ report_date|date:'Y-m-d' }}" class="date-input" onchange="this.form.submit()">
+      </form>
+    </div>
+  </div>
+
+  <!-- KPI Cards -->
+  <div class="rpt-kpi-row">
+    <div class="rpt-kpi blue">
+      <div class="rpt-kpi-val">₹{{ total_sales|floatformat:2 }}</div>
+      <div class="rpt-kpi-lbl">Total Sales</div>
+    </div>
+    <div class="rpt-kpi green">
+      <div class="rpt-kpi-val">₹{{ gross_profit|floatformat:2 }}</div>
+      <div class="rpt-kpi-lbl">Gross Profit</div>
+    </div>
+    <div class="rpt-kpi red">
+      <div class="rpt-kpi-val">₹{{ total_expenses|floatformat:2 }}</div>
+      <div class="rpt-kpi-lbl">Total Expenses</div>
+    </div>
+    <div class="rpt-kpi {% if net_profit >= 0 %}green{% else %}red{% endif %}">
+      <div class="rpt-kpi-val">₹{{ net_profit|floatformat:2 }}</div>
+      <div class="rpt-kpi-lbl">Net Profit</div>
+    </div>
+    <div class="rpt-kpi orange">
+      <div class="rpt-kpi-val">{{ profit_percentage|floatformat:1 }}%</div>
+      <div class="rpt-kpi-lbl">Profit %</div>
+    </div>
+  </div>
+
+  <!-- Product Report Table -->
+  <div class="section-card">
+    <div class="section-hdr">
+      <h3><i class="fas fa-boxes"></i> Product-Wise Summary</h3>
+      <span style="font-size:12px;color:var(--muted);">{{ product_rows|length }} product(s)</span>
+    </div>
+    <div style="overflow-x:auto;">
+      <table class="rpt-table">
+        <thead>
+          <tr>
+            <th>S.No</th>
+            <th>Product Name</th>
+            <th>Opening Qty</th>
+            <th>Purchased Qty</th>
+            <th>Purchase Price</th>
+            <th>Sold Qty</th>
+            <th>Selling Price</th>
+            <th>Closing Qty</th>
+            <th>Profit (₹)</th>
+            <th>Total Sale (₹)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in product_rows %}
+          <tr>
+            <td>{{ forloop.counter }}</td>
+            <td><strong>{{ row.product_name }}</strong></td>
+            <td>{{ row.opening_qty|floatformat:2 }} kg</td>
+            <td>{{ row.purchased_qty|floatformat:2 }} kg</td>
+            <td>₹{{ row.purchase_price|floatformat:2 }}</td>
+            <td>{{ row.sold_qty|floatformat:2 }} kg</td>
+            <td>₹{{ row.selling_price|floatformat:2 }}</td>
+            <td>{{ row.closing_qty|floatformat:2 }} kg</td>
+            <td class="{% if row.profit >= 0 %}profit-pos{% else %}profit-neg{% endif %}">
+              ₹{{ row.profit|floatformat:2 }}
+            </td>
+            <td><strong>₹{{ row.total_sale|floatformat:2 }}</strong></td>
+          </tr>
+          {% empty %}
+          <tr class="no-data-row"><td colspan="10"><i class="fas fa-info-circle"></i><p>No sales recorded for this date.</p></td></tr>
+          {% endfor %}
+        </tbody>
+        {% if product_rows %}
+        <tfoot>
+          <tr>
+            <td colspan="2">TOTALS</td>
+            <td>—</td><td>—</td><td>—</td>
+            <td>{{ product_rows|length }} items</td>
+            <td>—</td><td>—</td>
+            <td class="{% if gross_profit >= 0 %}profit-pos{% else %}profit-neg{% endif %}">₹{{ gross_profit|floatformat:2 }}</td>
+            <td>₹{{ total_sales|floatformat:2 }}</td>
+          </tr>
+        </tfoot>
+        {% endif %}
+      </table>
+    </div>
+  </div>
+
+  <!-- Summary + Expenses side by side -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px;" class="two-col-summary">
+
+    <!-- Financial Summary -->
+    <div class="section-card">
+      <div class="section-hdr">
+        <h3><i class="fas fa-calculator"></i> Financial Summary</h3>
+      </div>
+      <div>
+        <div class="sum-row"><span class="sum-lbl">Total Sales</span><span class="sum-val blue">₹{{ total_sales|floatformat:2 }}</span></div>
+        <div class="sum-row"><span class="sum-lbl">Gross Profit</span><span class="sum-val green">₹{{ gross_profit|floatformat:2 }}</span></div>
+        <div class="sum-row"><span class="sum-lbl">Daily Expenses</span><span class="sum-val red">₹{% with t=daily_expenses|length %}{% for e in daily_expenses %}{{ e.amount|add:"0" }}{% endfor %}{% endwith %}
+          — <small>see detail below</small></span></div>
+        <div class="sum-row"><span class="sum-lbl">Total Expenses</span><span class="sum-val red">₹{{ total_expenses|floatformat:2 }}</span></div>
+        <div class="sum-row" style="background:rgba(26,188,156,.06);">
+          <span class="sum-lbl" style="font-weight:700;font-size:14px;">Net Profit</span>
+          <span class="sum-val {% if net_profit >= 0 %}green{% else %}red{% endif %}" style="font-size:1.1rem;">₹{{ net_profit|floatformat:2 }}</span>
+        </div>
+        <div class="sum-row">
+          <span class="sum-lbl">Profit Percentage</span>
+          <span class="sum-val orange">{{ profit_percentage|floatformat:2 }}%</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Expenses Detail -->
+    <div class="section-card">
+      <div class="section-hdr">
+        <h3><i class="fas fa-receipt"></i> Day's Expenses Detail</h3>
+      </div>
+      {% if all_expenses %}
+      <table class="rpt-table">
+        <thead>
+          <tr>
+            <th style="text-align:left;">Category</th>
+            <th style="text-align:left;">Description</th>
+            <th>Type</th>
+            <th>Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in all_expenses %}
+          <tr>
+            <td style="text-align:left;">{{ e.get_category_display }}</td>
+            <td style="text-align:left;color:var(--muted);font-size:12px;">{{ e.description }}</td>
+            <td>
+              {% if e.expense_type == 'DAILY' %}
+                <span class="exp-badge exp-daily"><i class="fas fa-sun"></i> Daily</span>
+              {% else %}
+                <span class="exp-badge exp-monthly"><i class="fas fa-calendar"></i> Monthly</span>
+              {% endif %}
+            </td>
+            <td><strong>₹{{ e.amount|floatformat:2 }}</strong></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="3">Total</td>
+            <td>₹{{ total_expenses|floatformat:2 }}</td>
+          </tr>
+        </tfoot>
+      </table>
+      {% else %}
+      <div class="empty-msg"><i class="fas fa-check-circle" style="font-size:2rem;color:#27ae60;"></i><p>No expenses recorded for this day.</p></div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+<style>
+@media(max-width:768px){.two-col-summary{grid-template-columns:1fr!important;}}
+@media print{
+  nav,.navbar,.nav-hamburger,.rpt-actions,.store-picker,.date-filter,.btn-primary,.btn-secondary{display:none!important;}
+  .rpt-hero{background:#1a5276!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+  .page-wrap{padding:0!important;margin:0!important;}
+}
+</style>
+{% endblock %}

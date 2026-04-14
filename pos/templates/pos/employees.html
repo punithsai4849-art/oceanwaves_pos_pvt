@@ -1,25 +1,53 @@
 {% extends 'pos/base.html' %}
 {% load static %}
-{% block title %}Employees — {{ store.name }}{% endblock %}
+{% block title %}Employees — {% if store %}{{ store.name }}{% else %}All Stores{% endif %}{% endblock %}
 {% block content %}
 <div class="pg">
   <div class="pg-header">
-    <div><h1><i class="fas fa-users"></i> Employee Manager — {{ store.name }}</h1><p>Manage staff, salaries and payslips</p></div>
-    <button class="btn-primary" onclick="openModal('addEmpModal')"><i class="fas fa-user-plus"></i> Add Employee</button>
+    <div>
+      <h1><i class="fas fa-users"></i> Employee Manager — {% if store %}{{ store.name }}{% else %}All Stores{% endif %}</h1>
+      <p>Manage staff, salaries and payslips</p>
+    </div>
+    <div style="display:flex; gap:10px; align-items:center;">
+      {% if all_stores %}
+      <form method="GET" style="display:flex; gap:10px; align-items:center; margin:0;">
+        <select name="store_id" onchange="this.form.submit()" style="padding: 8px; border-radius: 6px; border: 1px solid #d1d5db;">
+          <option value="">All Stores (Overall)</option>
+          <option value="none" {% if selected_store_id == 'none' %}selected{% endif %}>Management / Head Office</option>
+          {% for s in all_stores %}
+          <option value="{{ s.id }}" {% if selected_store_id == s.id|stringformat:"s" %}selected{% endif %}>{{ s.name }}</option>
+          {% endfor %}
+        </select>
+      </form>
+      {% endif %}
+      <button class="btn-primary" onclick="openModal('addEmpModal')"><i class="fas fa-user-plus"></i> Add Employee</button>
+    </div>
   </div>
+
+
 
   <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr)">
     <div class="kpi blue"><div class="kpi-icon"><i class="fas fa-users"></i></div><div class="kpi-body"><span class="kpi-val">{{ employees|length }}</span><span class="kpi-lbl">Total Employees</span></div></div>
-    <div class="kpi green"><div class="kpi-icon"><i class="fas fa-user-check"></i></div><div class="kpi-body"><span class="kpi-val">{% for e in employees %}{% if e.is_active %}{{ forloop.counter0|add:1 }}{% endif %}{% endfor %}</span><span class="kpi-lbl">Active</span></div></div>
+    <div class="kpi green"><div class="kpi-icon"><i class="fas fa-user-check"></i></div><div class="kpi-body"><span class="kpi-val">{{ active_count }}</span><span class="kpi-lbl">Active</span></div></div>
     <div class="kpi orange"><div class="kpi-icon"><i class="fas fa-rupee-sign"></i></div><div class="kpi-body"><span class="kpi-val">₹{{ total_payroll|floatformat:0 }}</span><span class="kpi-lbl">Monthly Payroll</span></div></div>
-    <div class="kpi purple"><div class="kpi-icon"><i class="fas fa-file-invoice"></i></div><div class="kpi-body"><span class="kpi-val">{{ employees|length }}</span><span class="kpi-lbl">On Payroll</span></div></div>
+    <div class="kpi red"><div class="kpi-icon"><i class="fas fa-user-slash"></i></div><div class="kpi-body"><span class="kpi-val">{{ inactive_count }}</span><span class="kpi-lbl">Inactive</span></div></div>
   </div>
 
   <div class="table-card">
     <div class="wm-bg"><img src="{% static 'pos/images/logo.jpg' %}" alt=""></div>
     <table class="data-table">
       <thead>
-        <tr><th>ID</th><th>Name</th><th>Designation</th><th>Type</th><th>Basic Salary</th><th>Net Salary</th><th>Status</th><th>Actions</th></tr>
+        <tr>
+          <th>ID</th>
+          <th>Name</th>
+          {% if not selected_store_id and all_stores %}<th>Store</th>{% endif %}
+          <th>Designation</th>
+          <th>Type</th>
+          <th>Basic Salary</th>
+          <th>Net Salary</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
       </thead>
       <tbody>
       {% for emp in employees %}
@@ -28,26 +56,41 @@
         <td>
           <div style="font-weight:700;">{{ emp.full_name }}</div>
           {% if emp.phone %}<div style="font-size:11px;color:var(--muted);">{{ emp.phone }}</div>{% endif %}
+          {% if emp.email %}<div style="font-size:11px;color:var(--muted);">{{ emp.email }}</div>{% endif %}
         </td>
+        {% if not selected_store_id and all_stores %}<td><span class="pill pill-blue" style="font-size:11px;">{{ emp.store.name }}</span></td>{% endif %}
         <td>{{ emp.designation|default:"—" }}</td>
         <td><span class="pill pill-blue">{{ emp.get_employment_type_display }}</span></td>
         <td class="tr">₹{{ emp.basic_salary }}</td>
         <td class="tr"><strong>₹{{ emp.net_salary }}</strong></td>
-        <td>{% if emp.is_active %}<span class="pill pill-green">Active</span>{% else %}<span class="pill pill-red">Inactive</span>{% endif %}</td>
+        <td>
+          {% if emp.is_active %}
+            <span class="pill pill-green">Active</span>
+          {% else %}
+            <span class="pill pill-red">Inactive</span>
+          {% endif %}
+        </td>
         <td style="display:flex;gap:5px;">
           <a href="{% url 'employee_detail' emp.id %}" class="btn-icon-sm blue" title="View Payslips"><i class="fas fa-file-invoice"></i></a>
           <button class="btn-icon-sm green" title="Edit"
             onclick="openEditEmp({{ emp.id }},'{{ emp.full_name|escapejs }}','{{ emp.phone|escapejs }}','{{ emp.email|escapejs }}','{{ emp.designation|escapejs }}','{{ emp.employment_type }}','{{ emp.pay_cycle }}',{{ emp.basic_salary }},{{ emp.allowances }},{{ emp.deductions }},{{ emp.is_active|lower }},'{{ emp.notes|escapejs }}')">
             <i class="fas fa-edit"></i>
           </button>
+          {% if emp.is_active %}
           <button class="btn-icon-sm red" title="Deactivate"
             onclick="confirmDeactivate({{ emp.id }},'{{ emp.full_name|escapejs }}')">
             <i class="fas fa-user-times"></i>
           </button>
+          {% else %}
+          <button class="btn-icon-sm red" title="Delete Permanently"
+            onclick="confirmHardDelete({{ emp.id }},'{{ emp.full_name|escapejs }}')">
+            <i class="fas fa-trash"></i>
+          </button>
+          {% endif %}
         </td>
       </tr>
       {% empty %}
-      <tr><td colspan="8" class="empty-state"><i class="fas fa-users"></i><p>No employees yet. Add your first employee!</p></td></tr>
+      <tr><td colspan="9" class="empty-state"><i class="fas fa-users"></i><p>No employees found.</p></td></tr>
       {% endfor %}
       </tbody>
     </table>
@@ -60,6 +103,15 @@
     <div class="mhdr"><h3><i class="fas fa-user-plus"></i> Add Employee</h3><button onclick="closeModal('addEmpModal')">×</button></div>
     <form method="POST" action="{% url 'employee_add' %}" class="mform">
       {% csrf_token %}
+      {% if all_stores %}
+      <div class="fg">
+        <label>Store *</label>
+        <select name="store_id" required>
+          <option value="">— Select Store —</option>
+          {% for s in all_stores %}<option value="{{ s.id }}" {% if store and store.id == s.id %}selected{% endif %}>{{ s.name }}</option>{% endfor %}
+        </select>
+      </div>
+      {% endif %}
       <div class="frow">
         <div class="fg"><label>Full Name *</label><input type="text" name="full_name" required placeholder="Employee full name"></div>
         <div class="fg"><label>Designation</label><input type="text" name="designation" placeholder="e.g. Cashier, Store Manager"></div>
@@ -144,12 +196,30 @@
 <div class="modal-overlay" id="deactivateModal">
   <div class="modal modal-sm">
     <div class="mhdr danger"><h3><i class="fas fa-user-times"></i> Deactivate Employee</h3><button onclick="closeModal('deactivateModal')">×</button></div>
-    <div class="mbody"><p>Deactivate <strong id="deactName"></strong>?</p></div>
+    <div class="mbody"><p>Deactivate <strong id="deactName"></strong>? They will be marked inactive but not deleted.</p></div>
     <form id="deactForm" method="POST" class="mform">
       {% csrf_token %}
       <div class="mactions">
         <button type="button" class="btn-secondary" onclick="closeModal('deactivateModal')">Cancel</button>
         <button type="submit" class="btn-danger">Deactivate</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Hard Delete confirm -->
+<div class="modal-overlay" id="hardDeleteModal">
+  <div class="modal modal-sm">
+    <div class="mhdr danger"><h3><i class="fas fa-trash"></i> Permanently Delete Employee</h3><button onclick="closeModal('hardDeleteModal')">×</button></div>
+    <div class="mbody">
+      <p>Permanently delete <strong id="hdName"></strong>?</p>
+      <p style="color:#dc2626;font-size:12px;margin-top:6px;"><i class="fas fa-exclamation-triangle"></i> This cannot be undone. All payslip records for this employee will also be deleted.</p>
+    </div>
+    <form id="hdForm" method="POST" class="mform">
+      {% csrf_token %}
+      <div class="mactions">
+        <button type="button" class="btn-secondary" onclick="closeModal('hardDeleteModal')">Cancel</button>
+        <button type="submit" class="btn-danger"><i class="fas fa-trash"></i> Delete Forever</button>
       </div>
     </form>
   </div>
@@ -172,6 +242,11 @@ function confirmDeactivate(id,name) {
   document.getElementById('deactName').textContent=name;
   document.getElementById('deactForm').action=`/employees/${id}/delete/`;
   openModal('deactivateModal');
+}
+function confirmHardDelete(id,name) {
+  document.getElementById('hdName').textContent=name;
+  document.getElementById('hdForm').action=`/employees/${id}/hard-delete/`;
+  openModal('hardDeleteModal');
 }
 document.querySelectorAll('.modal-overlay').forEach(o=>o.addEventListener('click',e=>{if(e.target===o)o.classList.remove('active');}));
 </script>

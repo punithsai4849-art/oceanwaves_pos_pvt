@@ -1,0 +1,304 @@
+{% extends 'pos/base.html' %}
+{% load static %}
+{% block title %}Attendance Tracker — OCEANWAVES POS{% endblock %}
+
+{% block extra_css %}
+<style>
+.att-hero{background:linear-gradient(135deg,#1b2631 0%,#1a5276 60%,#117a65 100%);border-radius:16px;padding:28px 32px;color:#fff;margin-bottom:28px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;}
+.att-hero h1{margin:0;font-size:1.6rem;font-weight:700;display:flex;align-items:center;gap:10px;}
+.att-hero p{margin:4px 0 0;opacity:.85;font-size:14px;}
+.view-tabs{display:flex;gap:0;margin-bottom:24px;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.12);border:1px solid var(--border);}
+.vtab{flex:1;padding:12px 16px;text-align:center;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;color:var(--muted);background:var(--card);border-right:1px solid var(--border);display:flex;align-items:center;justify-content:center;gap:7px;transition:all .2s;}
+.vtab:last-child{border-right:none;}
+.vtab.active{background:linear-gradient(135deg,#1a5276,#117a65);color:#fff;}
+.vtab:hover:not(.active){background:rgba(26,82,118,.07);}
+.filter-row{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:24px;}
+.filter-box{display:flex;align-items:center;gap:10px;background:var(--card);padding:12px 18px;border-radius:12px;box-shadow:var(--shadow);}
+.filter-box label{font-weight:600;color:var(--muted);font-size:13px;white-space:nowrap;}
+.att-kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px;margin-bottom:24px;}
+.att-kpi{background:var(--card);border-radius:12px;padding:18px 20px;box-shadow:var(--shadow);text-align:center;}
+.att-kpi.present{border-top:4px solid #27ae60;}
+.att-kpi.absent{border-top:4px solid #e74c3c;}
+.att-kpi.rate{border-top:4px solid var(--accent);}
+.att-kpi-val{font-size:1.6rem;font-weight:800;}
+.att-kpi.present .att-kpi-val{color:#27ae60;}
+.att-kpi.absent .att-kpi-val{color:#e74c3c;}
+.att-kpi.rate .att-kpi-val{color:var(--accent);}
+.att-kpi-lbl{font-size:12px;color:var(--muted);margin-top:4px;}
+.section-card{background:var(--card);border-radius:14px;box-shadow:var(--shadow);overflow:hidden;margin-bottom:24px;}
+.section-hdr{display:flex;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid var(--border);}
+.section-hdr h3{margin:0;font-size:1rem;font-weight:700;display:flex;align-items:center;gap:8px;}
+.att-table{width:100%;border-collapse:collapse;}
+.att-table thead th{padding:12px 16px;font-size:12px;font-weight:700;text-align:left;background:linear-gradient(90deg,#1a5276,#117a65);color:#fff;white-space:nowrap;}
+.att-table tbody td{padding:11px 16px;border-bottom:1px solid var(--border);font-size:13px;}
+.att-table tbody tr:hover{background:rgba(26,82,118,.04);}
+.att-table tbody tr:nth-child(even){background:rgba(0,0,0,.02);}
+.status-badge{display:inline-flex;align-items:center;gap:5px;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;}
+.status-present{background:rgba(39,174,96,.15);color:#1e8449;}
+.status-absent{background:rgba(231,76,60,.15);color:#c0392b;}
+.store-chip{display:inline-flex;align-items:center;gap:5px;background:rgba(26,82,118,.1);color:#1a5276;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;}
+.att-progress{height:6px;border-radius:3px;background:rgba(231,76,60,.2);overflow:hidden;}
+.att-progress-fill{height:100%;border-radius:3px;background:linear-gradient(90deg,#27ae60,#1abc9c);transition:width .4s;}
+.empty-msg{text-align:center;padding:48px;color:var(--muted);}
+.store-row{padding:16px 22px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);}
+.store-row:last-child{border-bottom:none;}
+.store-row:hover{background:rgba(26,82,118,.04);}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pg">
+
+  <!-- Hero -->
+  <div class="att-hero">
+    <div>
+      <h1><i class="fas fa-user-check"></i> Attendance Tracker</h1>
+      <p>Monitor store manager login activity and daily attendance across all stores</p>
+    </div>
+    <div style="text-align:right;">
+      <div style="font-size:13px;opacity:.85;"><i class="fas fa-info-circle"></i> Login = Present &nbsp;|&nbsp; No Login = Absent</div>
+      <div style="font-size:12px;opacity:.6;margin-top:4px;">Tracked automatically on every login</div>
+    </div>
+  </div>
+
+  <!-- View Tabs -->
+  <div class="view-tabs">
+    <a href="?view=daily&date={{ today|date:'Y-m-d' }}{% if store_id %}&store_id={{ store_id }}{% endif %}"
+       class="vtab {% if view_type == 'daily' %}active{% endif %}">
+      <i class="fas fa-calendar-day"></i> Daily View
+    </a>
+    <a href="?view=monthly&month={{ month_str }}{% if store_id %}&store_id={{ store_id }}{% endif %}"
+       class="vtab {% if view_type == 'monthly' %}active{% endif %}">
+      <i class="fas fa-calendar-alt"></i> Monthly View
+    </a>
+    <a href="?view=store{% if store_id %}&store_id={{ store_id }}{% endif %}"
+       class="vtab {% if view_type == 'store' %}active{% endif %}">
+      <i class="fas fa-store"></i> Store-Wise View
+    </a>
+  </div>
+
+  <!-- Filters -->
+  <div class="filter-row">
+    {% if view_type == 'daily' %}
+    <div class="filter-box">
+      <label><i class="fas fa-calendar"></i> Date:</label>
+      <form method="GET" style="display:flex;gap:8px;align-items:center;">
+        <input type="hidden" name="view" value="daily">
+        {% if store_id %}<input type="hidden" name="store_id" value="{{ store_id }}">{% endif %}
+        <input type="date" name="date" value="{{ date_str }}" class="date-input" onchange="this.form.submit()">
+      </form>
+    </div>
+    {% elif view_type == 'monthly' %}
+    <div class="filter-box">
+      <label><i class="fas fa-calendar-alt"></i> Month:</label>
+      <form method="GET" style="display:flex;gap:8px;align-items:center;">
+        <input type="hidden" name="view" value="monthly">
+        {% if store_id %}<input type="hidden" name="store_id" value="{{ store_id }}">{% endif %}
+        <input type="month" name="month" value="{{ month_str }}" class="date-input" onchange="this.form.submit()">
+      </form>
+    </div>
+    {% endif %}
+    <div class="filter-box">
+      <label><i class="fas fa-store"></i> Store:</label>
+      <form method="GET" style="display:flex;gap:8px;align-items:center;">
+        <input type="hidden" name="view" value="{{ view_type }}">
+        {% if view_type == 'daily' %}<input type="hidden" name="date" value="{{ date_str }}">{% elif view_type == 'monthly' %}<input type="hidden" name="month" value="{{ month_str }}">{% endif %}
+        <select name="store_id" class="date-input" onchange="this.form.submit()" style="min-width:160px;">
+          <option value="">All Stores</option>
+          {% for s in stores %}
+          <option value="{{ s.id }}" {% if s.id|stringformat:"s" == store_id %}selected{% endif %}>{{ s.name }}</option>
+          {% endfor %}
+        </select>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── DAILY VIEW ─────────────────────────────────────────────────────── -->
+  {% if view_type == 'daily' %}
+  <div class="att-kpi-row">
+    <div class="att-kpi present">
+      <div class="att-kpi-val">{{ present_count }}</div>
+      <div class="att-kpi-lbl">Present</div>
+    </div>
+    <div class="att-kpi absent">
+      <div class="att-kpi-val">{{ absent_count }}</div>
+      <div class="att-kpi-lbl">Absent</div>
+    </div>
+    <div class="att-kpi rate">
+      {% if present_count|add:absent_count > 0 %}
+      <div class="att-kpi-val">{{ present_count }}%</div>
+      {% else %}
+      <div class="att-kpi-val">—</div>
+      {% endif %}
+      <div class="att-kpi-lbl">Attendance Rate</div>
+    </div>
+  </div>
+
+  <!-- Present -->
+  <div class="section-card">
+    <div class="section-hdr">
+      <h3><i class="fas fa-check-circle" style="color:#27ae60;"></i> Present — {{ report_date|date:"d F Y" }}</h3>
+      <span style="font-size:12px;color:var(--muted);">{{ present_count }} login(s)</span>
+    </div>
+    {% if present_rows %}
+    <table class="att-table">
+      <thead>
+        <tr>
+          <th>Store</th>
+          <th>Manager Name</th>
+          <th>Username</th>
+          <th>Email</th>
+          <th>Login Time</th>
+          <th>IP Address</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for rec in present_rows %}
+        <tr>
+          <td><span class="store-chip"><i class="fas fa-store"></i> {{ rec.store.name|default:"No Store" }}</span></td>
+          <td><strong>{{ rec.user.get_full_name|default:rec.user.username }}</strong></td>
+          <td style="color:var(--muted);">{{ rec.user.username }}</td>
+          <td style="color:var(--muted);font-size:12px;">{{ rec.user.email|default:"—" }}</td>
+          <td>{% if rec.login_time %}{{ rec.login_time|time:"h:i A" }}{% else %}—{% endif %}</td>
+          <td style="font-size:11px;color:var(--muted);">{{ rec.ip_address|default:"—" }}</td>
+          <td><span class="status-badge status-present"><i class="fas fa-circle" style="font-size:7px;"></i> Present</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-msg"><i class="fas fa-user-times" style="font-size:2.5rem;opacity:.3;"></i><p>No logins recorded for this date.</p></div>
+    {% endif %}
+  </div>
+
+  <!-- Absent -->
+  {% if absent_rows %}
+  <div class="section-card">
+    <div class="section-hdr">
+      <h3><i class="fas fa-times-circle" style="color:#e74c3c;"></i> Absent — {{ report_date|date:"d F Y" }}</h3>
+      <span style="font-size:12px;color:var(--muted);">{{ absent_count }} user(s)</span>
+    </div>
+    <table class="att-table">
+      <thead>
+        <tr>
+          <th>Store</th>
+          <th>Manager Name</th>
+          <th>Username</th>
+          <th>Email</th>
+          <th>Role</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in absent_rows %}
+        <tr>
+          <td><span class="store-chip"><i class="fas fa-store"></i> {{ p.store.name|default:"No Store" }}</span></td>
+          <td><strong>{{ p.user.get_full_name|default:p.user.username }}</strong></td>
+          <td style="color:var(--muted);">{{ p.user.username }}</td>
+          <td style="font-size:12px;color:var(--muted);">{{ p.user.email|default:"—" }}</td>
+          <td><span class="cat-badge cat-other">{{ p.get_role_display }}</span></td>
+          <td><span class="status-badge status-absent"><i class="fas fa-circle" style="font-size:7px;"></i> Absent</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <!-- ── MONTHLY VIEW ──────────────────────────────────────────────────── -->
+  {% elif view_type == 'monthly' %}
+  <div class="section-card">
+    <div class="section-hdr">
+      <h3><i class="fas fa-calendar-check"></i> Monthly Attendance — {{ month_name }}</h3>
+      <span style="font-size:12px;color:var(--muted);">{{ total_working_days }} working days tracked</span>
+    </div>
+    {% if month_rows %}
+    <table class="att-table">
+      <thead>
+        <tr>
+          <th>Store</th>
+          <th>Manager</th>
+          <th>Email</th>
+          <th>Present Days</th>
+          <th>Absent Days</th>
+          <th>Total Days</th>
+          <th>Attendance %</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in month_rows %}
+        <tr>
+          <td><span class="store-chip"><i class="fas fa-store"></i> {{ row.store_name }}</span></td>
+          <td>
+            <div style="font-weight:600;">{{ row.full_name }}</div>
+            <div style="font-size:11px;color:var(--muted);">{{ row.username }}</div>
+          </td>
+          <td style="font-size:12px;color:var(--muted);">{{ row.email|default:"—" }}</td>
+          <td><strong style="color:#27ae60;">{{ row.present }}</strong></td>
+          <td><strong style="color:#e74c3c;">{{ row.absent }}</strong></td>
+          <td>{{ row.total_days }}</td>
+          <td>
+            {% if row.total_days > 0 %}
+            {% with pct=row.present|floatformat:0 %}
+            <div style="display:flex;align-items:center;gap:8px;">
+              <div class="att-progress" style="width:80px;">
+                <div class="att-progress-fill" style="width:{{ row.present|floatformat:0 }}%"></div>
+              </div>
+              {{ row.present }} / {{ row.total_days }}
+            </div>
+            {% endwith %}
+            {% else %}—{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-msg"><i class="fas fa-calendar-times" style="font-size:2.5rem;opacity:.3;"></i><p>No attendance data for this month.</p></div>
+    {% endif %}
+  </div>
+
+  <!-- ── STORE-WISE VIEW ──────────────────────────────────────────────── -->
+  {% else %}
+  <div class="section-card">
+    <div class="section-hdr">
+      <h3><i class="fas fa-store"></i> Store-Wise Attendance Overview</h3>
+    </div>
+    {% for s in store_summary %}
+    <div class="store-row">
+      <div style="flex:1;">
+        <div style="font-weight:700;font-size:14px;display:flex;align-items:center;gap:8px;">
+          <i class="fas fa-store" style="color:var(--accent);"></i>
+          {{ s.store.name }}
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px;">
+          {{ s.total_users }} user(s) assigned &nbsp;|&nbsp;
+          {% if s.last_login %}
+            Last login: {{ s.last_login.user.get_full_name|default:s.last_login.user.username }}
+            on {{ s.last_login.login_date|date:"d M Y" }}
+            {% if s.last_login.login_time %}at {{ s.last_login.login_time|time:"h:i A" }}{% endif %}
+          {% else %}
+            No logins recorded
+          {% endif %}
+        </div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:1.4rem;font-weight:800;color:var(--accent);">{{ s.total_logins }}</div>
+        <div style="font-size:11px;color:var(--muted);">Total Logins</div>
+      </div>
+      <div style="margin-left:20px;">
+        <a href="?view=daily&date={{ today|date:'Y-m-d' }}&store_id={{ s.store.id }}"
+           class="btn-sm blue" style="text-decoration:none;">
+          <i class="fas fa-eye"></i> View
+        </a>
+      </div>
+    </div>
+    {% empty %}
+    <div class="empty-msg"><p>No stores found.</p></div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

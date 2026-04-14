@@ -1,0 +1,283 @@
+{% extends 'pos/base.html' %}
+{% block title %}{{ book.name }} — {{ store.name }}{% endblock %}
+
+{% block extra_css %}
+<style>
+/* ── Book hero ── */
+.book-hero {
+  border-radius: 18px; padding: 26px 32px; color: white; margin-bottom: 28px;
+  display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 18px;
+  position: relative; overflow: hidden;
+}
+.book-hero::before {
+  content: '';
+  position: absolute; left: 0; top: 0; bottom: 0; width: 18px;
+  background: rgba(0,0,0,.2);
+}
+.book-hero-left { padding-left: 10px; }
+.book-hero h1  { margin: 0; font-size: 1.5rem; font-weight: 800; display: flex; align-items: center; gap: 10px; }
+.book-hero p   { margin: 5px 0 0; opacity: .85; font-size: 13px; }
+.balance-bubble {
+  background: rgba(255,255,255,.18); border-radius: 14px;
+  padding: 16px 24px; text-align: center; min-width: 160px;
+}
+.balance-bubble .bval { font-size: 1.9rem; font-weight: 900; }
+.balance-bubble .blbl { font-size: 11px; opacity: .8; margin-top: 3px; }
+.bval.pos { color: #bbf7d0; }
+.bval.neg { color: #fca5a5; }
+.back-link { display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:700;
+             color:rgba(255,255,255,.8); text-decoration:none; margin-top:8px; }
+.back-link:hover { color:white; }
+
+/* ── Layout ── */
+.ledger-layout { display: grid; grid-template-columns: 2fr 1fr; gap: 24px; align-items: start; }
+
+/* ── Table ── */
+.section-card { background: white; border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; border: 1px solid var(--border); }
+.section-hdr  { display: flex; align-items: center; justify-content: space-between; padding: 16px 22px; border-bottom: 1px solid var(--bg); }
+.section-hdr h3 { margin: 0; font-size: 14px; font-weight: 800; display: flex; align-items: center; gap: 8px; }
+
+.ledger-table { width: 100%; border-collapse: collapse; }
+.ledger-table thead th { padding: 11px 14px; font-size: 11px; font-weight: 800; text-align: center;
+                          white-space: nowrap; text-transform: uppercase; letter-spacing: .4px; }
+.th-date   { background: #1e293b; color: white; text-align: left !important; }
+.th-desc   { background: #1e293b; color: white; text-align: left !important; }
+.th-credit { background: #1a5276; color: white; }
+.th-debit  { background: #7f1d1d; color: white; }
+.th-bal    { background: #14532d; color: white; }
+.th-del    { background: #1e293b; color: white; width: 44px; }
+
+.ledger-table tbody td { padding: 10px 14px; border-bottom: 1px solid #f1f5f9; font-size: 13px; text-align: center; vertical-align: middle; }
+.ledger-table tbody td.left { text-align: left; }
+.ledger-table tbody tr:hover td { background: #f8fafc; }
+.credit-amt { color: #1a5276; font-weight: 800; }
+.debit-amt  { color: #b91c1c; font-weight: 800; }
+.bal-pos    { color: #15803d; font-weight: 800; }
+.bal-neg    { color: #b91c1c; font-weight: 800; }
+.btn-del-entry { background: none; border: none; cursor: pointer; padding: 5px 7px; border-radius: 6px;
+                  color: #b91c1c; font-size: 13px; transition: background .12s; }
+.btn-del-entry:hover { background: rgba(185,28,28,.1); }
+
+.empty-ledger { text-align: center; padding: 60px 24px; color: var(--muted); }
+.empty-ledger i { font-size: 42px; opacity: .3; display: block; margin-bottom: 10px; }
+
+/* ── Entry form ── */
+.add-form-card { background: white; border-radius: 14px; box-shadow: var(--shadow); padding: 22px; border: 1px solid var(--border); }
+.add-form-card h3 { margin: 0 0 16px; font-size: 14px; font-weight: 800; display: flex; align-items: center; gap: 8px; }
+.tab-row { display: flex; border-radius: 10px; overflow: hidden; border: 1.5px solid var(--border); margin-bottom: 16px; }
+.ltab { flex: 1; padding: 10px; border: none; font-size: 13px; font-weight: 700; cursor: pointer;
+         background: white; color: var(--muted); transition: .15s; }
+.ltab.active { color: white; }
+.ltab.credit-tab.active { background: #1a5276; }
+.ltab.debit-tab.active  { background: #b91c1c; }
+.fg { margin-bottom: 13px; }
+.fg label { display: block; font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 4px; }
+.fg input, .fg textarea {
+  width: 100%; padding: 9px 12px; border-radius: 9px; border: 1.5px solid var(--border);
+  background: #f8fafc; color: var(--text); font-size: 13px; outline: none; transition: border .15s;
+}
+.fg input:focus, .fg textarea:focus { border-color: var(--primary); background: white; }
+.credit-section { display: block; }
+.debit-section  { display: none; }
+.amount-input-credit { border-color: #1a5276 !important; font-weight: 800 !important; font-size: 16px !important; }
+.amount-input-debit  { border-color: #b91c1c !important; font-weight: 800 !important; font-size: 16px !important; }
+
+.legend { display: flex; gap: 14px; flex-wrap: wrap; }
+.legend-item { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); }
+.legend-dot  { width: 10px; height: 10px; border-radius: 50%; }
+
+@media (max-width: 900px) {
+  .ledger-layout { grid-template-columns: 1fr !important; }
+  .book-hero     { flex-direction: column; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pg">
+
+  <!-- Book Hero -->
+  <div class="book-hero" style="background: linear-gradient(135deg, {{ book.color }}dd, {{ book.color }}99);">
+    <div class="book-hero-left">
+      <a href="{% url 'ledger_view' %}{% if profile.is_superadmin %}?store_id={{ store.id }}{% endif %}" class="back-link">
+        <i class="fas fa-arrow-left"></i> All Books
+      </a>
+      <h1 style="margin-top:8px;">
+        <i class="fas {{ book.icon }}"></i> {{ book.name }}
+      </h1>
+      <p>{{ store.name }}{% if book.description %} · {{ book.description }}{% endif %}</p>
+    </div>
+    <div class="balance-bubble">
+      <div class="bval {% if current_balance >= 0 %}pos{% else %}neg{% endif %}">
+        ₹{{ current_balance|floatformat:2 }}
+      </div>
+      <div class="blbl">Current Balance</div>
+    </div>
+  </div>
+
+  <div class="ledger-layout">
+
+    <!-- Entries Table -->
+    <div class="section-card">
+      <div class="section-hdr">
+        <h3><i class="fas fa-list-alt" style="color:{{ book.color }};"></i> Entries</h3>
+        <div class="legend">
+          <span class="legend-item"><span class="legend-dot" style="background:#1a5276;"></span>Credit (Given)</span>
+          <span class="legend-item"><span class="legend-dot" style="background:#b91c1c;"></span>Debit (Spent)</span>
+        </div>
+      </div>
+      <div style="overflow-x:auto;">
+        {% if entries %}
+        <table class="ledger-table">
+          <thead>
+            <tr>
+              <th class="th-date">Date</th>
+              <th class="th-desc">Description</th>
+              <th class="th-credit">Credit (₹)<br><small style="font-weight:400;opacity:.85;">Given</small></th>
+              <th class="th-debit">Debit (₹)<br><small style="font-weight:400;opacity:.85;">Spent</small></th>
+              <th class="th-bal">Balance (₹)</th>
+              <th class="th-del"><i class="fas fa-trash-alt"></i></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for entry in entries %}
+            <tr>
+              <td class="left" style="white-space:nowrap;">{{ entry.date|date:"d M Y" }}</td>
+              <td class="left">
+                {{ entry.description }}
+                {% if entry.created_by %}
+                <br><small style="color:var(--muted);font-size:11px;">by {{ entry.created_by.get_full_name|default:entry.created_by.username }}</small>
+                {% endif %}
+              </td>
+              <td>
+                {% if entry.amount_given > 0 %}
+                <span class="credit-amt">₹{{ entry.amount_given|floatformat:2 }}</span>
+                {% else %}<span style="color:#cbd5e1;">—</span>{% endif %}
+              </td>
+              <td>
+                {% if entry.amount_spent > 0 %}
+                <span class="debit-amt">₹{{ entry.amount_spent|floatformat:2 }}</span>
+                {% else %}<span style="color:#cbd5e1;">—</span>{% endif %}
+              </td>
+              <td class="{% if entry.display_balance >= 0 %}bal-pos{% else %}bal-neg{% endif %}">
+                ₹{{ entry.display_balance|floatformat:2 }}
+              </td>
+              <td>
+                <form method="POST" action="{% url 'ledger_entry_delete' entry.id %}"
+                      onsubmit="return confirm('Delete this entry?')">
+                  {% csrf_token %}
+                  <button type="submit" class="btn-del-entry" title="Delete">
+                    <i class="fas fa-trash-alt"></i>
+                  </button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="empty-ledger">
+          <i class="fas fa-book-open"></i>
+          <p>No entries yet.<br>Add the first entry using the form →</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Add Entry Form -->
+    <div class="add-form-card">
+      <h3>
+        <i class="fas fa-plus-circle" style="color:{{ book.color }};"></i> Add Entry
+      </h3>
+
+      <div class="tab-row">
+        <button class="ltab credit-tab active" id="tabCredit" onclick="switchTab('credit')">
+          <i class="fas fa-arrow-down"></i> Credit (Given)
+        </button>
+        <button class="ltab debit-tab" id="tabDebit" onclick="switchTab('debit')">
+          <i class="fas fa-arrow-up"></i> Debit (Spent)
+        </button>
+      </div>
+
+      <form method="POST" action="{% url 'ledger_book_detail' book.id %}" class="mform">
+        {% csrf_token %}
+
+        <div class="fg">
+          <label>Date *</label>
+          <input type="date" name="date" value="{{ today|date:'Y-m-d' }}" required>
+        </div>
+        <div class="fg">
+          <label>Description *</label>
+          <input type="text" name="description" placeholder="e.g. Cash given for fish purchase" required>
+        </div>
+
+        <!-- Credit section -->
+        <div class="credit-section" id="creditSection">
+          <div class="fg">
+            <label style="color:#1a5276;"><i class="fas fa-arrow-down"></i> Credit Amount (₹) *</label>
+            <input type="number" name="amount_given" id="creditInput" step="0.01" min="0"
+                   placeholder="0.00" class="amount-input-credit">
+          </div>
+          <input type="hidden" name="amount_spent" id="debitHidden" value="0">
+        </div>
+
+        <!-- Debit section -->
+        <div class="debit-section" id="debitSection">
+          <div class="fg">
+            <label style="color:#b91c1c;"><i class="fas fa-arrow-up"></i> Debit Amount (₹) *</label>
+            <input type="number" name="amount_spent" id="debitInput" step="0.01" min="0"
+                   placeholder="0.00" class="amount-input-debit" disabled>
+          </div>
+          <input type="hidden" name="amount_given" id="creditHidden" value="0" disabled>
+        </div>
+
+        <button type="submit" class="btn-primary" style="width:100%;justify-content:center;margin-top:8px;">
+          <i class="fas fa-plus"></i> Add Entry
+        </button>
+      </form>
+
+      <div style="margin-top:18px;padding:13px;background:#f0f9ff;border-radius:10px;border-left:4px solid {{ book.color }};">
+        <p style="font-size:12px;color:var(--muted);margin:0;line-height:1.6;">
+          <strong>📘 Rules:</strong><br>
+          • <strong>Credit</strong> = Money given / received<br>
+          • <strong>Debit</strong> = Money spent (explanation required)<br>
+          • Balance = Running (Credit – Debit)
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function switchTab(type) {
+  const creditSection = document.getElementById('creditSection');
+  const debitSection  = document.getElementById('debitSection');
+  const creditInput   = document.getElementById('creditInput');
+  const debitInput    = document.getElementById('debitInput');
+  const debitHidden   = document.getElementById('debitHidden');
+  const creditHidden  = document.getElementById('creditHidden');
+
+  if (type === 'credit') {
+    creditSection.style.display = 'block';
+    debitSection.style.display  = 'none';
+    document.getElementById('tabCredit').classList.add('active');
+    document.getElementById('tabDebit').classList.remove('active');
+    creditInput.disabled  = false;
+    debitHidden.disabled  = false;
+    debitInput.disabled   = true;
+    creditHidden.disabled = true;
+    debitInput.value      = '';
+  } else {
+    creditSection.style.display = 'none';
+    debitSection.style.display  = 'block';
+    document.getElementById('tabDebit').classList.add('active');
+    document.getElementById('tabCredit').classList.remove('active');
+    debitInput.disabled   = false;
+    creditHidden.disabled = false;
+    creditInput.disabled  = true;
+    debitHidden.disabled  = true;
+    creditInput.value     = '';
+  }
+}
+</script>
+{% endblock %}

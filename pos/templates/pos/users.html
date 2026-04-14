@@ -1,11 +1,22 @@
 {% extends 'pos/base.html' %}
 {% load static %}
-{% block title %}Users — Ocean Waves Admin{% endblock %}
+{% block title %}Users — OCEANWAVES Admin{% endblock %}
 {% block content %}
 <div class="pg">
   <div class="pg-header">
     <div><h1><i class="fas fa-users-cog"></i> User Management</h1><p>Assign users to stores and manage roles</p></div>
-    <button class="btn-primary" onclick="openModal('addUserModal')"><i class="fas fa-user-plus"></i> Create User</button>
+    <div style="display:flex; gap:10px; align-items:center;">
+      <form method="GET" style="display:flex; gap:10px; align-items:center; margin:0;">
+        <select name="store_filter" onchange="this.form.submit()" style="padding: 8px; border-radius: 6px; border: 1px solid #d1d5db;">
+          <option value="">All Stores & Groups</option>
+          <option value="none" {% if store_filter == 'none' %}selected{% endif %}>No Store Assigned</option>
+          {% for s in stores %}
+          <option value="{{ s.id }}" {% if store_filter == s.id|stringformat:"s" %}selected{% endif %}>{{ s.name }}</option>
+          {% endfor %}
+        </select>
+      </form>
+      <button class="btn-primary" onclick="openModal('addUserModal')"><i class="fas fa-user-plus"></i> Create User</button>
+    </div>
   </div>
 
   <!-- Users by store grouping -->
@@ -132,13 +143,13 @@
         <div class="fg"><label>Last Name</label><input type="text" name="last_name" placeholder="Last"></div>
       </div>
       <div class="fg"><label>Username *</label><input type="text" name="username" required placeholder="login username (no spaces)"></div>
-      <div class="fg"><label>Email Address *</label><input type="email" name="email" required placeholder="name@domain.com"></div>
+      <div class="fg"><label>Email Address (Gmail) *</label><input type="email" name="email" required placeholder="name@gmail.com"></div>
       <div class="fg"><label>Password *</label><input type="password" name="password" required placeholder="minimum 6 characters"></div>
       <div class="fg"><label>Phone Number</label><input type="text" name="phone" placeholder="e.g. +91 9876543210"></div>
       <div class="frow">
         <div class="fg">
           <label>Role *</label>
-          <select name="role" id="createRoleSelect" required onchange="toggleStoreField('create')">
+          <select name="role" id="createRoleSelect" required onchange="toggleStoreField('create');toggleEmpFields()">
             <option value="STAFF">👤 Staff</option>
             <option value="OWNER">👑 Store Owner</option>
             <option value="AREAMANAGER">🛡️ Area Manager</option>
@@ -174,6 +185,31 @@
         Area Managers are not restricted to one store. After creating, go to
         <strong>Area Managers</strong> page to assign stores and set their approval PIN.
       </div>
+
+      <!-- ── Employee Details Section ── -->
+      <div id="empDetailsSection" style="margin-top:4px;">
+        <div class="price-section-label" style="margin:12px 0 8px;">👔 Employee Details</div>
+        <div class="frow">
+          <div class="fg"><label>Designation</label><input type="text" name="designation" placeholder="e.g. Cashier, Store Manager"></div>
+          <div class="fg">
+            <label>Employment Type</label>
+            <select name="employment_type">
+              <option value="FULLTIME">Full Time</option>
+              <option value="PARTTIME">Part Time</option>
+              <option value="CONTRACT">Contract</option>
+              <option value="DAILY">Daily Wage</option>
+            </select>
+          </div>
+        </div>
+        <div class="price-section-label" style="margin:8px 0 8px;">💰 Salary Details (₹)</div>
+        <div class="frow frow3">
+          <div class="fg"><label>Basic Salary *</label><input type="number" name="basic_salary" step="0.01" min="0" value="0" placeholder="25000"></div>
+          <div class="fg"><label>Allowances</label><input type="number" name="allowances" step="0.01" min="0" value="0" placeholder="HRA, travel..."></div>
+          <div class="fg"><label>Deductions</label><input type="number" name="deductions" step="0.01" min="0" value="0" placeholder="PF, ESI..."></div>
+        </div>
+        <div class="fg"><label>Date Joined</label><input type="date" name="date_joined"></div>
+      </div>
+
       <div class="mactions">
         <button type="button" class="btn-secondary" onclick="closeModal('addUserModal')">Cancel</button>
         <button type="submit" class="btn-primary"><i class="fas fa-save"></i> Create User</button>
@@ -279,12 +315,25 @@ function toggleStoreField(mode) {
   const storeDiv = document.getElementById(mode === 'create' ? 'createStoreField' : 'editStoreField');
   const noteDiv  = document.getElementById(mode === 'create' ? 'createAMNote' : 'editAMNote');
   const permDiv  = document.getElementById(mode === 'create' ? 'createPermissionsDiv' : 'editPermissionsDiv');
-  // Area Managers, Wholesale Execs, and Admins don't need a single store assigned
-  const noStore  = (role === 'AREAMANAGER' || role === 'SUPERADMIN' || role === 'WHOLESALE_EXEC' || role === 'SUBADMIN');
+  
+  // Upper management and admins don't need a base store
+  const noStore  = (role === 'SUPERADMIN' || role === 'AREAMANAGER' || role === 'WHOLESALE_EXEC' || role === 'SUBADMIN');
   storeDiv.style.opacity = noStore ? '0.4' : '1';
   storeDiv.style.pointerEvents = noStore ? 'none' : '';
+  
   noteDiv.style.display = (role === 'AREAMANAGER' || role === 'WHOLESALE_EXEC') ? '' : 'none';
+  if(noteDiv.style.display === '' && mode === 'create') {
+      noteDiv.innerHTML = '<i class="fas fa-info-circle"></i> After creating, go to <strong>Area Managers</strong> page to assign operating stores and set their approval PIN.';
+  }
   permDiv.style.display = role === 'SUBADMIN' ? 'block' : 'none';
+}
+
+function toggleEmpFields() {
+  const role = document.getElementById('createRoleSelect').value;
+  const empSection = document.getElementById('empDetailsSection');
+  // Show employee section for all except SUPERADMIN
+  const showEmp = (role !== 'SUPERADMIN');
+  empSection.style.display = showEmp ? '' : 'none';
 }
 
 function openEditUserWithData(btn) {

@@ -23,10 +23,14 @@
   <div class="kpi-grid">
     <div class="kpi blue"><div class="kpi-icon"><i class="fas fa-receipt"></i></div><div class="kpi-body"><span class="kpi-val">{{ sales.count }}</span><span class="kpi-lbl">Bills</span></div></div>
     <div class="kpi green"><div class="kpi-icon"><i class="fas fa-rupee-sign"></i></div><div class="kpi-body"><span class="kpi-val">₹{{ total_sales|floatformat:2 }}</span><span class="kpi-lbl">Total Sales</span></div></div>
+    {% if not profile.is_staff_role %}
     <div class="kpi orange"><div class="kpi-icon"><i class="fas fa-shopping-cart"></i></div><div class="kpi-body"><span class="kpi-val">₹{{ total_cost|floatformat:2 }}</span><span class="kpi-lbl">Total Cost</span></div></div>
     <div class="kpi {% if total_profit >= 0 %}teal{% else %}red{% endif %}"><div class="kpi-icon"><i class="fas fa-chart-line"></i></div><div class="kpi-body"><span class="kpi-val">₹{{ total_profit|floatformat:2 }}</span><span class="kpi-lbl">Gross Profit</span></div></div>
+    {% endif %}
     <div class="kpi red"><div class="kpi-icon"><i class="fas fa-minus-circle"></i></div><div class="kpi-body"><span class="kpi-val">₹{{ total_expense|floatformat:2 }}</span><span class="kpi-lbl">Expenses</span></div></div>
+    {% if not profile.is_staff_role %}
     <div class="kpi {% if net_profit >= 0 %}purple{% else %}red{% endif %}"><div class="kpi-icon"><i class="fas fa-coins"></i></div><div class="kpi-body"><span class="kpi-val">₹{{ net_profit|floatformat:2 }}</span><span class="kpi-lbl">Net Profit</span></div></div>
+    {% endif %}
   </div>
 
   <!-- Breakdowns -->
@@ -123,7 +127,13 @@
       <thead><tr>
         {% if not store %}<th>Store</th>{% endif %}
         <th>Bill #</th><th>Product</th><th>Qty</th><th>Mode</th>
-        <th>CP/kg</th><th>SP/kg</th><th>Sales</th><th>Cost</th><th>Profit</th>
+        {% if not profile.is_staff_role %}
+        <th>CP/kg</th>
+        {% endif %}
+        <th>SP/kg</th><th>Sales</th>
+        {% if not profile.is_staff_role %}
+        <th>Cost</th><th>Profit</th>
+        {% endif %}
       </tr></thead>
       <tbody>
       {% for item in sale_items %}
@@ -133,18 +143,24 @@
         <td><strong>{{ item.product_name }}</strong></td>
         <td class="tr">{{ item.quantity }}</td>
         <td>{{ item.sale.get_payment_mode_display }}</td>
+        {% if not profile.is_staff_role %}
         <td class="tr">₹{{ item.cost_price }}</td>
+        {% endif %}
         <td class="tr">₹{{ item.selling_price }}</td>
         <td class="tr">₹{{ item.total_amount }}</td>
+        {% if not profile.is_staff_role %}
         <td class="tr">₹{{ item.total_cost }}</td>
         <td class="tr {% if item.profit >= 0 %}text-green{% else %}text-red{% endif %}"><strong>₹{{ item.profit }}</strong></td>
+        {% endif %}
       </tr>
       {% endfor %}
       <tr class="totals-row">
-        <td colspan="{% if not store %}7{% else %}6{% endif %}"><strong>TOTALS</strong></td>
+        <td colspan="{% if not store %}{% if not profile.is_staff_role %}7{% else %}5{% endif %}{% else %}{% if not profile.is_staff_role %}6{% else %}4{% endif %}{% endif %}"><strong>TOTALS</strong></td>
         <td class="tr"><strong>₹{{ total_sales|floatformat:2 }}</strong></td>
+        {% if not profile.is_staff_role %}
         <td class="tr"><strong>₹{{ total_cost|floatformat:2 }}</strong></td>
         <td class="tr text-green"><strong>₹{{ total_profit|floatformat:2 }}</strong></td>
+        {% endif %}
       </tr>
       </tbody>
     </table>

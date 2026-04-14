@@ -1,6 +1,6 @@
 {% extends 'pos/base.html' %}
 {% load static %}
-{% block title %}Stores — Ocean Waves Admin{% endblock %}
+{% block title %}Stores — OCEANWAVES Admin{% endblock %}
 {% block content %}
 <div class="pg">
   <div class="pg-header">
@@ -20,6 +20,7 @@
         {% if s.phone   %}<p><i class="fas fa-phone"></i> {{ s.phone }}</p>{% endif %}
         {% if s.whatsapp_number %}<p style="color:#25D366;"><i class="fab fa-whatsapp"></i> {{ s.whatsapp_number }}</p>{% endif %}
         {% if s.gstin   %}<p><i class="fas fa-file-invoice"></i> GSTIN: {{ s.gstin }}</p>{% endif %}
+        {% if s.upi_id  %}<p><i class="fas fa-qrcode"></i> UPI ID: {{ s.upi_id }}</p>{% endif %}
       </div>
       <div class="sc-stats">
         <div class="sc-stat"><span>{{ s.staff_count }}</span><small>Staff</small></div>
@@ -27,7 +28,7 @@
       </div>
       <div class="sc-actions">
         <a href="{% url 'store_detail' s.id %}" class="btn-sm blue"><i class="fas fa-chart-bar"></i> Report</a>
-        <button class="btn-sm grey" onclick="openEditStore({{ s.id }}, '{{ s.name|escapejs }}', '{{ s.address|escapejs }}', '{{ s.phone|escapejs }}', '{{ s.whatsapp_number|escapejs }}', '{{ s.email|escapejs }}', '{{ s.gstin|escapejs }}', {{ s.is_active|lower }})">
+        <button class="btn-sm grey" onclick="openEditStore({{ s.id }}, '{{ s.name|escapejs }}', '{{ s.address|escapejs }}', '{{ s.phone|escapejs }}', '{{ s.whatsapp_number|escapejs }}', '{{ s.email|escapejs }}', '{{ s.gstin|escapejs }}', '{{ s.upi_id|escapejs }}', {{ s.is_active|lower }})">
           <i class="fas fa-edit"></i> Edit
         </button>
       </div>
@@ -47,14 +48,17 @@
     <div class="mhdr"><h3><i class="fas fa-plus-circle"></i> Create New Store</h3><button onclick="closeModal('addStoreModal')">×</button></div>
     <form method="POST" action="{% url 'store_create' %}" class="mform">
       {% csrf_token %}
-      <div class="fg"><label>Store Name *</label><input type="text" name="name" required placeholder="e.g. Ocean Waves - Banjara Hills"></div>
+      <div class="fg"><label>Store Name *</label><input type="text" name="name" required placeholder="e.g. OCEANWAVES - Banjara Hills"></div>
       <div class="fg"><label>Address</label><textarea name="address" rows="2" placeholder="Full store address"></textarea></div>
       <div class="frow">
       <div class="fg"><label>Phone</label><input type="text" name="phone" placeholder="Contact number"></div>
         <div class="fg"><label><i class="fab fa-whatsapp" style="color:#25D366"></i> WhatsApp Number</label><input type="text" name="whatsapp_number" placeholder="e.g. 919876543210 (with country code)"></div>
         <div class="fg"><label>Email</label><input type="email" name="email" placeholder="store@email.com"></div>
       </div>
-      <div class="fg"><label>GSTIN</label><input type="text" name="gstin" placeholder="GST number for this store"></div>
+      <div class="frow">
+        <div class="fg"><label>GSTIN</label><input type="text" name="gstin" placeholder="GST number for this store"></div>
+        <div class="fg"><label>UPI ID</label><input type="text" name="upi_id" placeholder="Store UPI ID"></div>
+      </div>
       <div class="mactions"><button type="button" class="btn-secondary" onclick="closeModal('addStoreModal')">Cancel</button><button type="submit" class="btn-primary"><i class="fas fa-save"></i> Create Store</button></div>
     </form>
   </div>
@@ -73,7 +77,10 @@
         <div class="fg"><label><i class="fab fa-whatsapp" style="color:#25D366"></i> WhatsApp Number</label><input type="text" name="whatsapp_number" id="esWhatsapp" placeholder="e.g. 919876543210"></div>
         <div class="fg"><label>Email</label><input type="email" name="email" id="esEmail"></div>
       </div>
-      <div class="fg"><label>GSTIN</label><input type="text" name="gstin" id="esGstin"></div>
+      <div class="frow">
+        <div class="fg"><label>GSTIN</label><input type="text" name="gstin" id="esGstin"></div>
+        <div class="fg"><label>UPI ID</label><input type="text" name="upi_id" id="esUpiId"></div>
+      </div>
       <div class="fg checkbox-fg">
         <label><input type="checkbox" name="is_active" id="esActive"> Store is Active</label>
       </div>
@@ -85,13 +92,14 @@
 {% endblock %}
 {% block extra_js %}
 <script>
-function openEditStore(id, name, addr, phone, whatsapp, email, gstin, active) {
+function openEditStore(id, name, addr, phone, whatsapp, email, gstin, upi_id, active) {
   document.getElementById('esName').value = name;
   document.getElementById('esAddress').value = addr;
   document.getElementById('esPhone').value = phone;
   document.getElementById('esWhatsapp').value = whatsapp;
   document.getElementById('esEmail').value = email;
   document.getElementById('esGstin').value = gstin;
+  document.getElementById('esUpiId').value = upi_id;
   document.getElementById('esActive').checked = active;
   document.getElementById('editStoreForm').action = `/stores/${id}/edit/`;
   openModal('editStoreModal');

@@ -20,6 +20,7 @@ class Store(models.Model):
     whatsapp_number  = models.CharField(max_length=20, blank=True, help_text='Store WhatsApp number for sending bills (e.g. 919876543210)')
     email            = models.EmailField(blank=True)
     gstin            = models.CharField(max_length=20, blank=True, verbose_name="GSTIN")
+    upi_id           = models.CharField(max_length=50, blank=True, help_text='Store UPI ID for receiving payments')
     is_active        = models.BooleanField(default=True)
     created_at       = models.DateTimeField(auto_now_add=True)
 
@@ -155,9 +156,10 @@ class Sale(models.Model):
 
     # Customer (required for wholesale)
     wholesale_customer = models.ForeignKey('WholesaleCustomer', on_delete=models.SET_NULL, null=True, blank=True, related_name='sales')
-    customer_name  = models.CharField(max_length=200, blank=True)
-    customer_phone = models.CharField(max_length=15,  blank=True)
-    customer_gst   = models.CharField(max_length=20,  blank=True)
+    customer_name    = models.CharField(max_length=200, blank=True)
+    customer_phone   = models.CharField(max_length=15,  blank=True)
+    customer_gst     = models.CharField(max_length=20,  blank=True)
+    customer_address = models.TextField(blank=True)
 
     # Financials
     subtotal       = models.DecimalField(max_digits=12, decimal_places=2, default=0)
@@ -242,26 +244,46 @@ class StockLog(models.Model):
 # ─────────────────────────────────────────────────────────────────────────────
 class Expense(models.Model):
     CATEGORY_CHOICES = [
-        ('RENT',      'Rent'),
-        ('SALARY',    'Salary'),
-        ('UTILITIES', 'Utilities'),
-        ('TRANSPORT', 'Transport'),
-        ('PURCHASE',  'Stock Purchase'),
-        ('OTHER',     'Other'),
+        # Daily expenses
+        ('TRANSPORT',    'Transport'),
+        ('MAINTENANCE',  'Maintenance'),
+        ('MISC',         'Miscellaneous'),
+        # Monthly expenses
+        ('RENT',         'Rent'),
+        ('ELECTRICITY',  'Electricity Bill'),
+        ('SALARY',       'Salary'),
+        ('PURCHASE',     'Stock Purchase'),
+        ('OTHER',        'Other'),
     ]
-    
+    EXPENSE_TYPE_CHOICES = [
+        ('DAILY',   'Daily Expense'),
+        ('MONTHLY', 'Monthly Expense'),
+    ]
+    # Category → type auto-mapping
+    DAILY_CATEGORIES   = {'TRANSPORT', 'MAINTENANCE', 'MISC'}
+    MONTHLY_CATEGORIES = {'RENT', 'ELECTRICITY', 'SALARY', 'PURCHASE', 'OTHER'}
+
     def expense_upload_path(instance, filename):
         ext = Path(filename).suffix.lower()
         return f"expense_bills/{uuid.uuid4().hex}{ext}"
-        
-    store       = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='expenses')
-    category    = models.CharField(max_length=20, choices=CATEGORY_CHOICES)
-    description = models.CharField(max_length=300)
-    amount      = models.DecimalField(max_digits=12, decimal_places=2)
-    bill_pdf    = models.FileField(upload_to=expense_upload_path, blank=True, null=True)
-    date        = models.DateField(default=timezone.now)
-    created_by  = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
-    created_at  = models.DateTimeField(auto_now_add=True)
+
+    store        = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='expenses')
+    category     = models.CharField(max_length=20, choices=CATEGORY_CHOICES)
+    expense_type = models.CharField(max_length=10, choices=EXPENSE_TYPE_CHOICES, default='DAILY')
+    description  = models.CharField(max_length=300)
+    amount       = models.DecimalField(max_digits=12, decimal_places=2)
+    bill_pdf     = models.FileField(upload_to=expense_upload_path, blank=True, null=True)
+    date         = models.DateField(default=timezone.now)
+    created_by   = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    created_at   = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        # Auto-set expense_type based on category if not explicitly set
+        if self.category in self.DAILY_CATEGORIES:
+            self.expense_type = 'DAILY'
+        elif self.category in self.MONTHLY_CATEGORIES:
+            self.expense_type = 'MONTHLY'
+        super().save(*args, **kwargs)
 
     class Meta:
         ordering = ['-date', '-created_at']
@@ -341,7 +363,7 @@ class Employee(models.Model):
         ('DAILY',     'Daily'),
     ]
 
-    store           = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='employees')
+    store           = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='employees', null=True, blank=True)
     user_profile    = models.OneToOneField(UserProfile, on_delete=models.SET_NULL,
                                            null=True, blank=True, related_name='employee')
     employee_id     = models.CharField(max_length=30, unique=True)
@@ -422,6 +444,7 @@ class WholesaleCustomer(models.Model):
     phone                 = models.CharField(max_length=20, blank=True)
     email                 = models.EmailField(blank=True)
     gst                   = models.CharField(max_length=20, blank=True)
+    address               = models.TextField(blank=True, help_text='Delivery / billing address')
     is_credit_enabled     = models.BooleanField(default=True)
     credit_duration_days  = models.PositiveIntegerField(default=7, help_text="Minimum 7, Max 30 days")
     created_by            = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='+')
@@ -457,3 +480,215 @@ class CreditRecord(models.Model):
         ref = self.sale.bill_number if self.sale else self.external_reference
         return f"Credit for {self.customer.name} - #{ref} (Paid: {self.is_paid})"
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  FINANCIAL SUITE: ASSETS, LEDGER, REPORTS & SESSIONS
+# ─────────────────────────────────────────────────────────────────────────────
+class StoreSession(models.Model):
+    store      = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='sessions')
+    date       = models.DateField(default=timezone.now)
+    opened_at  = models.DateTimeField(null=True, blank=True)
+    closed_at  = models.DateTimeField(null=True, blank=True)
+    opened_by  = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='opened_sessions')
+    closed_by  = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='closed_sessions')
+
+    class Meta:
+        ordering = ['-date', '-opened_at']
+
+    @property
+    def is_open(self):
+        return self.opened_at is not None and self.closed_at is None
+
+    def __str__(self):
+        return f"[{self.store.name}] Session {self.date}"
+
+
+class StoreAsset(models.Model):
+    store         = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='assets')
+    name          = models.CharField(max_length=200)
+    purchase_date = models.DateField(default=timezone.now)
+    cost          = models.DecimalField(max_digits=12, decimal_places=2)
+    notes         = models.TextField(blank=True)
+    created_at    = models.DateTimeField(auto_now_add=True)
+    created_by    = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+
+    class Meta:
+        ordering = ['-purchase_date']
+
+    def __str__(self):
+        return f"{self.name} ({self.store.name})"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  LEDGER BOOK  (each book = one notebook on the shelf)
+# ─────────────────────────────────────────────────────────────────────────────
+COLOR_CHOICES = [
+    ('#27a4d1', 'Ocean Blue'),
+    ('#16a34a', 'Forest Green'),
+    ('#dc2626', 'Ruby Red'),
+    ('#7c3aed', 'Violet'),
+    ('#d97706', 'Amber'),
+    ('#0f172a', 'Midnight'),
+    ('#db2777', 'Rose'),
+    ('#0891b2', 'Cyan'),
+]
+
+class LedgerBook(models.Model):
+    store       = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='ledger_books')
+    name        = models.CharField(max_length=150, help_text='e.g. Cash Ledger, Bank Account, Supplier Dues')
+    description = models.TextField(blank=True)
+    color       = models.CharField(max_length=10, default='#27a4d1', choices=COLOR_CHOICES)
+    icon        = models.CharField(max_length=50, default='fa-book', help_text='FontAwesome icon class e.g. fa-book')
+    created_by  = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='+')
+    created_at  = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"[{self.store.name}] {self.name}"
+
+    @property
+    def entry_count(self):
+        return self.entries.count()
+
+    @property
+    def current_balance(self):
+        agg = self.entries.aggregate(
+            given=models.Sum('amount_given'),
+            spent=models.Sum('amount_spent')
+        )
+        return (agg['given'] or 0) - (agg['spent'] or 0)
+
+    class Meta:
+        ordering = ['name']
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  LEDGER ENTRY
+# ─────────────────────────────────────────────────────────────────────────────
+class LedgerEntry(models.Model):
+    store         = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='ledger_entries')
+    ledger_book   = models.ForeignKey(
+        'LedgerBook', on_delete=models.CASCADE, related_name='entries',
+        null=True, blank=True
+    )
+    date          = models.DateField(default=timezone.now)
+    description   = models.CharField(max_length=300)
+    amount_given  = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="Credit (Given)")
+    amount_spent  = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="Debit (Spent)")
+    balance       = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    created_at    = models.DateTimeField(auto_now_add=True)
+    created_by    = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+
+    class Meta:
+        ordering = ['date', 'created_at']
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.amount_spent > 0 and not self.description:
+            raise ValidationError("Explanation is mandatory for debit entries.")
+
+    def __str__(self):
+        return f"[{self.store.name}] {self.date} - {self.description[:30]}"
+
+
+class DailyStockSnapshot(models.Model):
+    store          = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='daily_snapshots')
+    product        = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='daily_snapshots')
+    date           = models.DateField(default=timezone.now)
+    
+    opening_qty    = models.DecimalField(max_digits=10, decimal_places=3, default=0)
+    purchased_qty  = models.DecimalField(max_digits=10, decimal_places=3, default=0)
+    sold_qty       = models.DecimalField(max_digits=10, decimal_places=3, default=0)
+    closing_qty    = models.DecimalField(max_digits=10, decimal_places=3, default=0)
+    
+    created_at     = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('store', 'product', 'date')
+        ordering = ['-date', 'product__name']
+
+    def __str__(self):
+        return f"[{self.store.name}] {self.product.name} Snapshot - {self.date}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  LOGIN ATTENDANCE
+# ─────────────────────────────────────────────────────────────────────────────
+class LoginAttendance(models.Model):
+    """Records every successful login as an attendance event."""
+    STATUS_CHOICES = [
+        ('PRESENT', 'Present'),
+        ('ABSENT',  'Absent'),
+    ]
+    store      = models.ForeignKey(Store, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name='attendance_records')
+    user       = models.ForeignKey(User, on_delete=models.CASCADE, related_name='attendance_records')
+    login_date = models.DateField(default=timezone.now)
+    login_time = models.TimeField(null=True, blank=True)
+    status     = models.CharField(max_length=10, choices=STATUS_CHOICES, default='PRESENT')
+    ip_address = models.CharField(max_length=50, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-login_date', '-login_time']
+        indexes = [
+            models.Index(fields=['login_date', 'store']),
+        ]
+
+    def __str__(self):
+        store_name = self.store.name if self.store else 'No Store'
+        return f"{self.user.get_full_name() or self.user.username} @ {store_name} — {self.login_date}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  STOCK REQUEST & VERIFICATION
+# ─────────────────────────────────────────────────────────────────────────────
+class StockRequest(models.Model):
+    STATUS_CHOICES = [
+        ('PENDING',    'Pending Approval'),
+        ('APPROVED',   'Approved & Shipped'),
+        ('RECEIVED',   'Received'),
+        ('DISCREPANCY','Quantity Discrepancy'),
+    ]
+    store           = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='stock_requests')
+    product         = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='stock_requests')
+    requested_qty   = models.DecimalField(max_digits=10, decimal_places=3)
+    sent_qty        = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
+    received_qty    = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
+    status          = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+    requested_by    = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='stock_requests_made')
+    approved_by     = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='stock_requests_approved')
+    requested_at    = models.DateTimeField(auto_now_add=True)
+    shipped_at      = models.DateTimeField(null=True, blank=True)
+    received_at     = models.DateTimeField(null=True, blank=True)
+    notes           = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ['-requested_at']
+
+    def __str__(self):
+        return f"Request: {self.product.name} ({self.requested_qty}kg) for {self.store.name}"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  NOTIFICATIONS / DASHBOARD ALERTS
+# ─────────────────────────────────────────────────────────────────────────────
+class Notification(models.Model):
+    LEVEL_CHOICES = [
+        ('INFO',    'Info'),
+        ('SUCCESS', 'Success'),
+        ('WARNING', 'Warning'),
+        ('DANGER',  'Critical'),
+    ]
+    user        = models.ForeignKey(User, on_delete=models.CASCADE, related_name='notifications')
+    title       = models.CharField(max_length=200)
+    message     = models.TextField()
+    level       = models.CharField(max_length=10, choices=LEVEL_CHOICES, default='INFO')
+    is_read     = models.BooleanField(default=False)
+    link        = models.CharField(max_length=255, blank=True, null=True)
+    created_at  = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"[{self.level}] {self.title} for {self.user.username}"

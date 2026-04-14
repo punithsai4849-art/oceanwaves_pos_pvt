@@ -1,0 +1,272 @@
+{% extends 'pos/base.html' %}
+{% load static %}
+{% block title %}Store Ledger — {{ store.name }}{% endblock %}
+
+{% block extra_css %}
+<style>
+.ledger-hero{background:linear-gradient(135deg,#1a3a5c 0%,#2c7be5 100%);border-radius:16px;padding:28px 32px;color:#fff;margin-bottom:28px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;}
+.ledger-hero h1{margin:0;font-size:1.6rem;font-weight:700;display:flex;align-items:center;gap:10px;}
+.ledger-hero p{margin:4px 0 0;opacity:.85;font-size:14px;}
+.balance-display{background:rgba(255,255,255,.15);border-radius:12px;padding:16px 24px;text-align:center;min-width:180px;}
+.balance-display .bal-val{font-size:1.8rem;font-weight:800;}
+.balance-display .bal-lbl{font-size:12px;opacity:.8;margin-top:4px;}
+.balance-display.positive .bal-val{color:#2ecc71;}
+.balance-display.negative .bal-val{color:#e74c3c;}
+.filter-row{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:24px;}
+.filter-box{display:flex;align-items:center;gap:10px;background:var(--card);padding:14px 20px;border-radius:12px;box-shadow:var(--shadow);}
+.filter-box label{font-weight:600;color:var(--muted);font-size:13px;white-space:nowrap;}
+.ledger-layout{display:grid;grid-template-columns:2fr 1fr;gap:24px;align-items:start;}
+.section-card{background:var(--card);border-radius:14px;box-shadow:var(--shadow);overflow:hidden;}
+.section-hdr{display:flex;align-items:center;justify-content:space-between;padding:16px 22px;border-bottom:1px solid var(--border);}
+.section-hdr h3{margin:0;font-size:1rem;font-weight:700;display:flex;align-items:center;gap:8px;}
+.ledger-table{width:100%;border-collapse:collapse;}
+.ledger-table thead th{padding:12px 16px;font-size:12px;font-weight:700;text-align:center;white-space:nowrap;}
+.ledger-table thead th.credit-th{background:#1a5276;color:#fff;}
+.ledger-table thead th.debit-th{background:#641e16;color:#fff;}
+.ledger-table thead th.bal-th{background:#145a32;color:#fff;}
+.ledger-table thead th.date-th{background:#283747;color:#fff;}
+.ledger-table thead th.del-th{background:#1a1a2e;color:#fff;width:48px;}
+.ledger-table tbody td{padding:11px 16px;border-bottom:1px solid var(--border);font-size:13px;text-align:center;vertical-align:middle;}
+.ledger-table tbody td.desc{text-align:left;}
+.ledger-table tbody tr:hover{background:rgba(44,123,229,.04);}
+.ledger-table tbody tr:nth-child(even){background:rgba(0,0,0,.02);}
+.btn-del-entry{background:none;border:none;cursor:pointer;padding:6px 8px;border-radius:7px;color:#c0392b;font-size:14px;transition:background .15s,transform .12s;}
+.btn-del-entry:hover{background:rgba(192,57,43,.12);transform:scale(1.15);}
+.credit-amt{color:#1a5276;font-weight:700;}
+.debit-amt{color:#c0392b;font-weight:700;}
+.bal-pos{color:#145a32;font-weight:700;}
+.bal-neg{color:#c0392b;font-weight:700;}
+.add-entry-card .mform .fg{margin-bottom:14px;}
+.add-entry-card .mform label{display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:5px;}
+.ledger-type-tabs{display:flex;gap:0;margin-bottom:16px;border-radius:10px;overflow:hidden;border:1px solid var(--border);}
+.ltab{flex:1;padding:10px;text-align:center;font-size:13px;font-weight:600;cursor:pointer;border:none;background:var(--card);color:var(--muted);}
+.ltab.active{background:var(--accent);color:#fff;}
+.credit-section{display:block;}
+.debit-section{display:none;}
+.entry-legend{display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap;}
+.legend-item{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);}
+.legend-dot{width:12px;height:12px;border-radius:50%;}
+.empty-ledger{text-align:center;padding:48px 24px;color:var(--muted);}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pg">
+
+  <!-- Hero -->
+  <div class="ledger-hero">
+    <div>
+      <h1><i class="fas fa-book"></i> Store Ledger</h1>
+      <p>Traditional accounting ledger — Credit (Given) & Debit (Spent)</p>
+    </div>
+    <div class="balance-display {% if current_balance >= 0 %}positive{% else %}negative{% endif %}">
+      <div class="bal-val">₹{{ current_balance|floatformat:2 }}</div>
+      <div class="bal-lbl">Current Balance</div>
+    </div>
+  </div>
+
+  <!-- Store Picker (superadmin) -->
+  {% if profile.is_superadmin and all_stores %}
+  <div class="filter-row">
+    <div class="filter-box">
+      <label><i class="fas fa-store"></i> Store:</label>
+      <form method="GET" style="display:flex;gap:8px;align-items:center;">
+        <select name="store_id" class="date-input" onchange="this.form.submit()" style="min-width:180px;">
+          {% for s in all_stores %}
+          <option value="{{ s.id }}" {% if s.id == store.id %}selected{% endif %}>{{ s.name }}</option>
+          {% endfor %}
+        </select>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="ledger-layout">
+
+    <!-- Ledger Table -->
+    <div class="section-card">
+      <div class="section-hdr">
+        <h3><i class="fas fa-list-alt"></i> Ledger Entries — {{ store.name }}</h3>
+        <div class="entry-legend">
+          <span class="legend-item"><span class="legend-dot" style="background:#1a5276;"></span>Credit (Given)</span>
+          <span class="legend-item"><span class="legend-dot" style="background:#c0392b;"></span>Debit (Spent)</span>
+        </div>
+      </div>
+      <div style="overflow-x:auto;">
+        {% if entries %}
+        <table class="ledger-table">
+          <thead>
+            <tr>
+              <th class="date-th">Date</th>
+              <th class="date-th" style="text-align:left;">Description</th>
+              <th class="credit-th">Credit (₹)<br><small style="font-weight:400;opacity:.85;">Money Given</small></th>
+              <th class="debit-th">Debit (₹)<br><small style="font-weight:400;opacity:.85;">Money Spent</small></th>
+              <th class="bal-th">Balance (₹)</th>
+              <th class="del-th"><i class="fas fa-trash-alt"></i></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for entry in entries %}
+            <tr>
+              <td>{{ entry.date|date:"d M Y" }}</td>
+              <td class="desc">
+                <span>{{ entry.description }}</span>
+                {% if entry.created_by %}
+                <br><small style="color:var(--muted);font-size:11px;">by {{ entry.created_by.get_full_name|default:entry.created_by.username }}</small>
+                {% endif %}
+              </td>
+              <td>
+                {% if entry.amount_given > 0 %}
+                <span class="credit-amt">₹{{ entry.amount_given|floatformat:2 }}</span>
+                {% else %}
+                <span style="color:var(--muted);">—</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if entry.amount_spent > 0 %}
+                <span class="debit-amt">₹{{ entry.amount_spent|floatformat:2 }}</span>
+                {% else %}
+                <span style="color:var(--muted);">—</span>
+                {% endif %}
+              </td>
+              <td class="{% if entry.display_balance >= 0 %}bal-pos{% else %}bal-neg{% endif %}">
+                ₹{{ entry.display_balance|floatformat:2 }}
+              </td>
+              <td>
+                <form method="POST"
+                      action="{% url 'ledger_entry_delete' entry.id %}{% if profile.is_superadmin %}?store_id={{ store.id }}{% endif %}"
+                      onsubmit="return confirm('Delete this entry? This cannot be undone.')">
+                  {% csrf_token %}
+                  <button type="submit" class="btn-del-entry" title="Delete entry">
+                    <i class="fas fa-trash-alt"></i>
+                  </button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="empty-ledger">
+          <i class="fas fa-book-open" style="font-size:3rem;opacity:.3;"></i>
+          <p style="margin-top:12px;">No ledger entries yet.<br>Add the first entry using the form →</p>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Add Entry Form -->
+    <div class="section-card add-entry-card" style="padding:20px;">
+      <h3 style="margin:0 0 16px;font-size:1rem;font-weight:700;display:flex;align-items:center;gap:8px;">
+        <i class="fas fa-plus-circle" style="color:var(--accent);"></i> Add Ledger Entry
+      </h3>
+
+      <!-- Credit/Debit Tabs -->
+      <div class="ledger-type-tabs">
+        <button class="ltab active" id="tabCredit" onclick="switchLedgerTab('credit')">
+          <i class="fas fa-arrow-down"></i> Credit (Given)
+        </button>
+        <button class="ltab" id="tabDebit" onclick="switchLedgerTab('debit')">
+          <i class="fas fa-arrow-up"></i> Debit (Spent)
+        </button>
+      </div>
+
+      <form method="POST" class="mform"
+            action="{% url 'ledger_view' %}{% if profile.is_superadmin %}?store_id={{ store.id }}{% endif %}">
+        {% csrf_token %}
+        <input type="hidden" name="store_id" value="{{ store.id }}">
+
+        <div class="fg">
+          <label>Date *</label>
+          <input type="date" name="date" value="{{ today|date:'Y-m-d' }}" required class="date-input" style="width:100%;">
+        </div>
+
+        <div class="fg">
+          <label>Description / Explanation *</label>
+          <input type="text" name="description" required placeholder="e.g. Cash given for stock purchase"
+                 style="width:100%;padding:10px 12px;border-radius:8px;border:1.5px solid var(--border);background:var(--bg);color:var(--text);font-size:14px;">
+          <small style="color:var(--muted);font-size:11px;">Mandatory for debit entries.</small>
+        </div>
+
+        <!-- Credit section -->
+        <div class="credit-section" id="creditSection">
+          <div class="fg">
+            <label style="color:#1a5276;"><i class="fas fa-arrow-down"></i> Credit Amount — Money Given (₹) *</label>
+            <input type="number" name="amount_given" id="creditInput" step="0.01" min="0" placeholder="0.00"
+                   style="width:100%;padding:10px 12px;border-radius:8px;border:2px solid #1a5276;background:rgba(26,82,118,.05);color:var(--text);font-size:16px;font-weight:700;">
+          </div>
+          <input type="hidden" name="amount_spent" id="debitHidden" value="0">
+        </div>
+
+        <!-- Debit section -->
+        <div class="debit-section" id="debitSection">
+          <div class="fg">
+            <label style="color:#c0392b;"><i class="fas fa-arrow-up"></i> Debit Amount — Money Spent (₹) *</label>
+            <input type="number" name="amount_spent" id="debitInput" step="0.01" min="0" placeholder="0.00"
+                   style="width:100%;padding:10px 12px;border-radius:8px;border:2px solid #c0392b;background:rgba(192,57,43,.05);color:var(--text);font-size:16px;font-weight:700;" disabled>
+          </div>
+          <input type="hidden" name="amount_given" id="creditHidden" value="0" disabled>
+        </div>
+
+        <button type="submit" class="btn-primary" style="width:100%;margin-top:8px;justify-content:center;">
+          <i class="fas fa-plus"></i> Add Entry
+        </button>
+      </form>
+
+      <div style="margin-top:20px;padding:14px;background:rgba(26,188,156,.08);border-radius:10px;border-left:4px solid var(--accent);">
+        <p style="font-size:12px;color:var(--muted);margin:0;line-height:1.6;">
+          <strong>📘 Ledger Rules:</strong><br>
+          • <strong>Credit</strong> = Money given/deposited into store<br>
+          • <strong>Debit</strong> = Money spent by store (needs explanation)<br>
+          • Balance = Running total (Credit – Debit)
+        </p>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+function switchLedgerTab(type) {
+  const creditSection = document.getElementById('creditSection');
+  const debitSection  = document.getElementById('debitSection');
+  const tabCredit     = document.getElementById('tabCredit');
+  const tabDebit      = document.getElementById('tabDebit');
+  const creditInput   = document.getElementById('creditInput');
+  const debitInput    = document.getElementById('debitInput');
+  const debitHidden   = document.getElementById('debitHidden');   // amount_spent=0 (in credit section)
+  const creditHidden  = document.getElementById('creditHidden');  // amount_given=0 (in debit section)
+
+  if (type === 'credit') {
+    creditSection.style.display = 'block';
+    debitSection.style.display  = 'none';
+    tabCredit.classList.add('active');
+    tabDebit.classList.remove('active');
+    // Enable credit-section fields so they submit
+    creditInput.disabled = false;
+    debitHidden.disabled = false;
+    // Disable ALL debit-section fields so they are NOT submitted
+    debitInput.disabled  = true;
+    creditHidden.disabled = true;
+    debitInput.value     = '';
+  } else {
+    creditSection.style.display = 'none';
+    debitSection.style.display  = 'block';
+    tabCredit.classList.remove('active');
+    tabDebit.classList.add('active');
+    // Enable debit-section fields so they submit
+    debitInput.disabled  = false;
+    creditHidden.disabled = false;
+    // Disable ALL credit-section fields so they are NOT submitted
+    creditInput.disabled = true;
+    debitHidden.disabled = true;
+    creditInput.value    = '';
+  }
+}
+</script>
+
+<style>
+@media(max-width:900px){.ledger-layout{grid-template-columns:1fr!important;}
+.ledger-table{display:block;overflow-x:auto;}}
+</style>
+{% endblock %}

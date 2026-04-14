@@ -7,12 +7,30 @@
     <div><h1><i class="fas fa-boxes"></i> Inventory — {{ store.name }}</h1><p>Manage products, pricing, and stock</p></div>
     <div style="display:flex;gap:10px;">
       <a href="{% url 'stock_log' %}" class="btn-secondary"><i class="fas fa-history"></i> Stock Log</a>
-      {% if profile.is_owner %}
+      {% if not profile.is_area_manager and not profile.is_superadmin %}
+      <button class="btn-secondary" onclick="openModal('stockRequestModal')"><i class="fas fa-clipboard-list"></i> Request Stock</button>
+      {% endif %}
+      {% if profile.is_owner or profile.is_area_manager %}
       <button class="btn-secondary" onclick="openModal('barcodeModal')"><i class="fas fa-barcode"></i> Barcode Scan</button>
       <button class="btn-primary" onclick="openModal('addProdModal')"><i class="fas fa-plus"></i> Add Product</button>
       {% endif %}
     </div>
   </div>
+
+  {% if managed_stores %}
+  <!-- Area Manager: Store Switcher -->
+  <div style="margin-bottom:16px;display:flex;align-items:center;gap:12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px 16px;">
+    <i class="fas fa-store" style="color:var(--primary);"></i>
+    <span style="font-weight:600;font-size:13px;">Viewing Store:</span>
+    <select onchange="window.location.href='/inventory/?store_id='+this.value"
+            style="border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:13px;cursor:pointer;">
+      {% for ams in managed_stores %}
+      <option value="{{ ams.store.id }}" {% if ams.store.id == store.id %}selected{% endif %}>{{ ams.store.name }}</option>
+      {% endfor %}
+    </select>
+    <span style="font-size:11px;color:var(--muted);"><i class="fas fa-info-circle"></i> You manage {{ managed_stores|length }} store(s)</span>
+  </div>
+  {% endif %}
 
   <!-- Stats -->
   <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr)">
@@ -38,7 +56,9 @@
       <thead>
         <tr>
           <th>#</th><th>Product</th><th>Category</th>
+          {% if not profile.is_staff_role %}
           <th>Cost Price (₹/kg)</th>
+          {% endif %}
           <th>Retail Price (₹/kg)</th>
           <th>Wholesale Price (₹/kg)</th>
           <th>Stock (kg)</th><th>Alert (kg)</th><th>Status</th><th>Actions</th>
@@ -51,7 +71,9 @@
           <td>{{ forloop.counter }}</td>
           <td><strong>{{ p.name }}</strong></td>
           <td><span class="cat-badge cat-{{ p.category|lower }}">{{ p.get_category_display }}</span></td>
+          {% if not profile.is_staff_role %}
           <td class="tr">₹{{ p.cost_price }}</td>
+          {% endif %}
           <td class="tr">₹{{ p.retail_price }}</td>
           <td class="tr">₹{{ p.wholesale_price }}</td>
           <td class="tr">
@@ -70,7 +92,7 @@
                 onclick="openRestock({{ p.id }},'{{ p.name|escapejs }}',{{ p.stock_quantity }})">
               <i class="fas fa-plus-circle"></i>
             </button>
-            {% if profile.is_owner %}
+            {% if profile.is_owner or profile.is_area_manager %}
             <button class="btn-icon-sm blue" title="Edit"
                 onclick="openEdit({{ p.id }},'{{ p.name|escapejs }}','{{ p.category }}',{{ p.cost_price }},{{ p.retail_price }},{{ p.wholesale_price }},{{ p.stock_quantity }},{{ p.low_stock_alert }})">
               <i class="fas fa-edit"></i>
@@ -96,6 +118,10 @@
     <div class="mhdr"><h3><i class="fas fa-plus-circle"></i> Add New Product</h3><button onclick="closeModal('addProdModal')">×</button></div>
     <form method="POST" action="{% url 'product_add' %}" class="mform">
       {% csrf_token %}
+      <!-- Pass current store for Area Managers -->
+      {% if managed_stores %}
+      <input type="hidden" name="store_id" value="{{ store.id }}">
+      {% endif %}
       <div class="frow">
         <div class="fg"><label>Product Name *</label><input type="text" name="name" required placeholder="e.g. Rohu Fish"></div>
         <div class="fg"><label>Category *</label>
@@ -106,11 +132,17 @@
         </div>
       </div>
       <div class="price-section-label">💰 Pricing (all per kg)</div>
+      {% if profile.is_superadmin or profile.is_area_manager %}
       <div class="frow frow3">
         <div class="fg"><label>Cost Price (₹) *</label><input type="number" name="cost_price" step="0.01" min="0" required placeholder="120.00"></div>
         <div class="fg"><label>Retail Price (₹) *</label><input type="number" name="retail_price" step="0.01" min="0" required placeholder="150.00"></div>
         <div class="fg"><label>Wholesale Price (₹) *</label><input type="number" name="wholesale_price" step="0.01" min="0" required placeholder="140.00"></div>
       </div>
+      {% else %}
+      <div class="p-info-msg" style="background:#fef3c7; color:#92400e; padding:10px; border-radius:8px; font-size:12px; margin-bottom:12px;">
+        <i class="fas fa-info-circle"></i> Prices can only be set by an Area Manager or Admin.
+      </div>
+      {% endif %}
       <div class="frow">
         <div class="fg"><label>Initial Stock (kg)</label><input type="number" name="stock_quantity" step="0.001" min="0" value="0"></div>
         <div class="fg"><label>Low Stock Alert (kg)</label><input type="number" name="low_stock_alert" step="0.001" min="0" value="5"></div>
@@ -139,11 +171,26 @@
         </div>
       </div>
       <div class="price-section-label">💰 Pricing (all per kg)</div>
+      {% if profile.is_superadmin or profile.is_area_manager %}
       <div class="frow frow3">
-        <div class="fg"><label>Cost Price (₹)</label><input type="number" name="cost_price" id="epCP" step="0.01" min="0"></div>
+        <div class="fg"><label>Cost Price (₹) *</label><input type="number" name="cost_price" step="0.01" min="0" required placeholder="120.00"></div>
         <div class="fg"><label>Retail Price (₹)</label><input type="number" name="retail_price" id="epRP" step="0.01" min="0"></div>
         <div class="fg"><label>Wholesale Price (₹)</label><input type="number" name="wholesale_price" id="epWP" step="0.01" min="0"></div>
       </div>
+      {% elif not profile.is_staff_role %}
+      <!-- Store Owner: sees prices but cannot edit cost price (read-only) -->
+      <div class="frow frow3">
+        <div class="fg"><label>Cost Price (₹)</label><input type="text" id="epCP_ro" readonly class="ro-input"></div>
+        <div class="fg"><label>Retail Price (₹)</label><input type="text" id="epRP_ro" readonly class="ro-input"></div>
+        <div class="fg"><label>Wholesale Price (₹)</label><input type="text" id="epWP_ro" readonly class="ro-input"></div>
+      </div>
+      {% else %}
+      <!-- Staff: only sees retail & wholesale, no cost price -->
+      <div class="frow frow2">
+        <div class="fg"><label>Retail Price (₹)</label><input type="text" id="epRP_ro" readonly class="ro-input"></div>
+        <div class="fg"><label>Wholesale Price (₹)</label><input type="text" id="epWP_ro" readonly class="ro-input"></div>
+      </div>
+      {% endif %}
       <div class="fg"><label>Low Stock Alert (kg)</label><input type="number" name="low_stock_alert" id="epAlert" step="0.001" min="0"></div>
       <div class="mactions">
         <button type="button" class="btn-secondary" onclick="closeModal('editProdModal')">Cancel</button>
@@ -254,11 +301,42 @@
   </div>
 </div>
 
+<!-- Stock Request Modal -->
+<div class="modal-overlay" id="stockRequestModal">
+  <div class="modal modal-sm">
+    <div class="mhdr"><h3><i class="fas fa-clipboard-list"></i> Request Stock</h3><button onclick="closeModal('stockRequestModal')">×</button></div>
+    <form action="{% url 'stock_request_create' %}" method="POST" class="mform">
+      {% csrf_token %}
+      <div class="fg">
+        <label>Select Product *</label>
+        <select name="product_id" id="srProd" required>
+          <option value="">-- Choose Product --</option>
+          {% for p in products %}
+          <option value="{{ p.id }}">{{ p.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="fg">
+        <label>Requested Quantity (kg) *</label>
+        <input type="number" name="requested_qty" step="0.001" min="0.001" required placeholder="50.000">
+      </div>
+      <div class="fg">
+        <label>Notes (Optional)</label>
+        <textarea name="notes" rows="2" placeholder="e.g. Low stock for weekend sale" style="width:100%; border:1px solid var(--border); border-radius:8px; padding:8px; font-family:inherit;"></textarea>
+      </div>
+      <div class="mactions">
+        <button type="button" class="btn-secondary" onclick="closeModal('stockRequestModal')">Cancel</button>
+        <button type="submit" class="btn-primary"><i class="fas fa-paper-plane"></i> Send Request</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <style>
 .barcode-info{background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 14px;font-size:12px;color:#1e40af;margin-bottom:14px;display:flex;gap:8px;align-items:flex-start;}
 .barcode-found{background:#dcfce7;border:1px solid #bbf7d0;border-radius:8px;padding:10px 14px;font-size:13px;color:#15803d;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
 .scan-overlay{position:relative;margin-top:-4px;}
-.scan-line{height:2px;background:#0077B6;animation:scan 2s linear infinite;}
+.scan-line{height:2px;background:#27A4D1;animation:scan 2s linear infinite;}
 @keyframes scan{0%{transform:translateY(0)}50%{transform:translateY(80px)}100%{transform:translateY(0)}}
 </style>
 
@@ -292,19 +370,34 @@ function searchTbl() {
 function openEdit(id,name,cat,cp,rp,wp,stock,alert) {
   document.getElementById('epName').value=name;
   document.getElementById('epCat').value=cat;
-  document.getElementById('epCP').value=cp;
-  document.getElementById('epRP').value=rp;
-  document.getElementById('epWP').value=wp;
+  
+  if (document.getElementById('epCP')) {
+    document.getElementById('epCP').value=cp;
+    document.getElementById('epRP').value=rp;
+    document.getElementById('epWP').value=wp;
+  } else {
+    if(document.getElementById('epCP_ro')) document.getElementById('epCP_ro').value=cp;
+    if(document.getElementById('epRP_ro')) document.getElementById('epRP_ro').value=rp;
+    if(document.getElementById('epWP_ro')) document.getElementById('epWP_ro').value=wp;
+  }
+  
   document.getElementById('epAlert').value=alert;
   document.getElementById('editProdForm').action=`/inventory/${id}/edit/`;
   openModal('editProdModal');
 }
 function openRestock(id,name,stock) {
+  {% if profile.is_superadmin or profile.is_area_manager %}
+  // Admins and Area Managers can directly restock
   document.getElementById('rsProdName').textContent=name;
   document.getElementById('rsCurrent').textContent=stock;
   document.getElementById('rsQty').value='';
   document.getElementById('restockForm').action=`/inventory/${id}/restock/`;
   openModal('restockModal');
+  {% else %}
+  // Store owners must use Request Stock workflow
+  document.getElementById('srProd').value = id;
+  openModal('stockRequestModal');
+  {% endif %}
 }
 function confirmDel(id,name) {
   document.getElementById('delProdName').textContent=name;

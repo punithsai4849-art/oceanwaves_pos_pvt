@@ -39,6 +39,7 @@
            data-id="{{ p.id }}" data-name="{{ p.name|escapejs }}"
            data-retail="{{ p.retail_price }}" data-ws="{{ p.wholesale_price }}"
            data-stock="{{ p.stock_quantity }}" data-cat="{{ p.category }}"
+           data-low-alert="{{ p.low_stock_alert }}"
            onclick="addToCart(this)">
         <div class="pt-cat">{{ p.get_category_display }}</div>
         <div class="pt-name">{{ p.name }}</div>
@@ -68,77 +69,105 @@
       <div class="bill-type-btns">
         <button class="btb active" id="btnRetail" onclick="setBillType('RETAIL')">
           <i class="fas fa-shopping-bag"></i> Retail
-          <small>No GST · Instant</small>
+          <small>Optional GST · Instant</small>
         </button>
         <button class="btb" id="btnWS" onclick="setBillType('WHOLESALE')">
           <i class="fas fa-industry"></i> Wholesale
-          <small>GST · PIN Required</small>
+          <small>Optional GST · PIN Required</small>
         </button>
       </div>
     </div>
 
-    <!-- Universal Customer fields -->
-    <div class="customer-info-box" style="padding: 15px 20px 0;">
-      <div class="wf-grid">
-        <input type="text" id="custName" list="wsCustomers" placeholder="Customer Name (Optional for Retail)" oninput="fillCustomerData()">
-        <datalist id="wsCustomers">
-          {% for wc in wholesale_customers %}
-          <option value="{{ wc.name }}" data-phone="{{ wc.phone }}" data-gst="{{ wc.gst|default:'' }}" data-credit-enabled="{{ wc.is_credit_enabled|yesno:'true,false' }}" data-has-unpaid="{{ wc.has_unpaid_credit|yesno:'true,false' }}"></option>
-          {% endfor %}
-        </datalist>
-        <input type="text" id="custPhone" placeholder="WhatsApp Number">
+    <!-- Customer Info Card -->
+    <div class="customer-info-card">
+      <div class="cic-label"><i class="fas fa-user"></i> Customer Details</div>
+      <div class="cic-fields">
+        <div class="cic-input-wrap">
+          <i class="fas fa-user-circle cic-icon"></i>
+          <input type="text" id="custName" list="wsCustomers" placeholder="Customer Name (optional)" oninput="fillCustomerData()">
+          <datalist id="wsCustomers">
+            {% for wc in wholesale_customers %}
+            <option value="{{ wc.name }}"
+                    data-phone="{{ wc.phone }}"
+                    data-gst="{{ wc.gst|default:'' }}"
+                    data-address="{{ wc.address|default:'' |escapejs }}"
+                    data-credit-enabled="{{ wc.is_credit_enabled|yesno:'true,false' }}"
+                    data-has-unpaid="{{ wc.has_unpaid_credit|yesno:'true,false' }}"></option>
+            {% endfor %}
+          </datalist>
+        </div>
+        <div class="cic-input-wrap">
+          <i class="fab fa-whatsapp cic-icon" style="color:#25D366;"></i>
+          <input type="text" id="custPhone" placeholder="WhatsApp Number">
+        </div>
       </div>
-    </div>
 
-    <!-- Wholesale-only extra fields -->
-    <div id="wsForm" class="ws-form" style="display:none; margin-top: 10px;">
-      <div class="ws-notice">
-        <i class="fas fa-shield-alt"></i>
-        Area Manager PIN required to complete wholesale bill
+      <!-- GST Toggle (works for both Retail & Wholesale) -->
+      <div class="gst-toggle-row">
+        <label class="gst-switch-label">
+          <div class="gst-switch-wrap">
+            <input type="checkbox" id="gstToggle" onchange="toggleGST()">
+            <span class="gst-slider"></span>
+          </div>
+          <span class="gst-toggle-text"><i class="fas fa-percent"></i> Apply GST</span>
+        </label>
+        <div class="gst-rate-wrap" id="gstRateWrap" style="display:none;">
+          <select id="gstRate" onchange="recalc()" class="gst-rate-select">
+            <option value="5">5%</option>
+            <option value="12">12%</option>
+            <option value="18" selected>18%</option>
+            <option value="28">28%</option>
+          </select>
+          <span class="gst-split-hint">CGST + SGST split equally</span>
+        </div>
       </div>
-      <div class="wf-grid">
-        <input type="text" id="custGST"   placeholder="GSTIN (optional)">
-        <select id="gstRate" onchange="recalc()">
-          <option value="5">GST 5%</option>
-          <option value="12">GST 12%</option>
-          <option value="18">GST 18%</option>
-          <option value="28">GST 28%</option>
-        </select>
+
+      <!-- Wholesale-only extra fields -->
+      <div id="wsForm" class="ws-extra" style="display:none;">
+        <div class="ws-notice">
+          <i class="fas fa-shield-alt"></i>
+          Area Manager PIN required to complete wholesale bill
+        </div>
+        <div class="cic-input-wrap" style="margin-top:8px;">
+          <i class="fas fa-file-invoice cic-icon"></i>
+          <input type="text" id="custGST" placeholder="GSTIN (optional)">
+        </div>
+        <div class="cic-input-wrap" style="margin-top:6px; align-items:flex-start;">
+          <i class="fas fa-map-marker-alt cic-icon" style="margin-top:3px;"></i>
+          <textarea id="custAddress" placeholder="Customer address (optional)" rows="2"
+                    style="border:none;outline:none;font-size:12px;color:#0f2d3d;background:transparent;width:100%;font-family:inherit;resize:none;line-height:1.4;"></textarea>
+        </div>
       </div>
     </div>
     <script>
+    function toggleGST() {
+      const on = document.getElementById('gstToggle').checked;
+      document.getElementById('gstRateWrap').style.display = on ? 'flex' : 'none';
+      recalc();
+    }
     function fillCustomerData() {
       const input = document.getElementById('custName');
       const dl = document.getElementById('wsCustomers');
       const creditBtn = document.getElementById('btnCredit');
-      
-      let isExisting = false;
-      let creditEnabled = true;
-      let hasUnpaid = false;
-
+      let isExisting = false, creditEnabled = true, hasUnpaid = false;
       for (let opt of dl.options) {
         if (opt.value === input.value) {
           isExisting = true;
-          if(opt.getAttribute('data-phone')) document.getElementById('custPhone').value = opt.getAttribute('data-phone');
-          if(opt.getAttribute('data-gst')) document.getElementById('custGST').value = opt.getAttribute('data-gst');
+          if (opt.getAttribute('data-phone'))   document.getElementById('custPhone').value   = opt.getAttribute('data-phone');
+          if (opt.getAttribute('data-gst'))     document.getElementById('custGST').value     = opt.getAttribute('data-gst');
+          if (opt.getAttribute('data-address')) document.getElementById('custAddress').value = opt.getAttribute('data-address');
           creditEnabled = (opt.getAttribute('data-credit-enabled') === 'true');
-          hasUnpaid = (opt.getAttribute('data-has-unpaid') === 'true');
+          hasUnpaid     = (opt.getAttribute('data-has-unpaid') === 'true');
           break;
         }
       }
-
       if (creditBtn) {
-        if (isExisting && (!creditEnabled || hasUnpaid)) {
-            creditBtn.disabled = true;
-            creditBtn.style.opacity = '0.4';
-            creditBtn.title = !creditEnabled ? "Credit disabled for this user" : "User has an active unpaid credit bill";
-            if (document.querySelector('.pm.active') && document.querySelector('.pm.active').getAttribute('data-m') === 'CREDIT') {
-                document.querySelector('.pm[data-m="CASH"]').click();
-            }
-        } else {
-            creditBtn.disabled = false;
-            creditBtn.style.opacity = '1';
-            creditBtn.title = "Pay via Credit";
+        const disable = isExisting && (!creditEnabled || hasUnpaid);
+        creditBtn.disabled     = disable;
+        creditBtn.style.opacity = disable ? '0.4' : '1';
+        creditBtn.title = !creditEnabled ? 'Credit disabled for this customer' : hasUnpaid ? 'Customer has unpaid credit' : 'Pay via Credit';
+        if (disable && document.querySelector('.pm.active')?.getAttribute('data-m') === 'CREDIT') {
+          document.querySelector('.pm[data-m="CASH"]').click();
         }
       }
     }
@@ -170,9 +199,9 @@
       <div class="bt-row disc-row" id="discRow" style="display:none">
         <span>Discount</span><span id="discVal" class="text-red">-₹0.00</span></div>
       <div class="bt-row gst-line" id="cgstRow" style="display:none">
-        <span>CGST (<span id="cgstLbl">2.5</span>%)</span><span id="cgstVal">₹0.00</span></div>
+        <span>CGST (<span id="cgstLbl">9</span>%)</span><span id="cgstVal">₹0.00</span></div>
       <div class="bt-row gst-line" id="sgstRow" style="display:none">
-        <span>SGST (<span id="sgstLbl">2.5</span>%)</span><span id="sgstVal">₹0.00</span></div>
+        <span>SGST (<span id="sgstLbl">9</span>%)</span><span id="sgstVal">₹0.00</span></div>
       <div class="bt-row grand"><span>Grand Total</span><span id="grandVal">₹0.00</span></div>
     </div>
 
@@ -186,6 +215,31 @@
         <button class="pm"        data-m="CARD"   onclick="setPayment('CARD',this)"><i class="fas fa-credit-card"></i> Card</button>
         <button class="pm"        data-m="CREDIT" id="btnCredit" style="display:none" onclick="setPayment('CREDIT',this)"><i class="fas fa-book-open"></i> Credit</button>
       </div>
+      
+      <!-- UPI QR Container -->
+      <div id="upiQRContainer" style="display:none; flex-direction:column; align-items:center; margin-top:20px; background:#f8fafc; padding:15px; border-radius:12px; border:2px dashed #94a3b8;">
+        <div id="upiManualSection" style="display:flex; flex-direction:column; align-items:center; width:100%;">
+            <p style="margin:0 0 10px 0; font-weight:600; color:#334155; font-size:14px;"><i class="fas fa-qrcode"></i> Scan to Pay (Manual)</p>
+            <div id="qrcode" style="background:white; padding:10px; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,0.1);"></div>
+            <p id="upiAmountText" style="margin:10px 0 0 0; font-weight:700; color:#27a4d1; font-size:18px;">₹0.00</p>
+            <button class="btn-sm blue" style="margin-top:15px; width:100%;" onclick="initiatePhonePe()"><i class="fas fa-robot"></i> Switch to Automated QR</button>
+        </div>
+        
+        <div id="upiAutoSection" style="display:none; flex-direction:column; align-items:center; width:100%;">
+            <p style="margin:0 0 10px 0; font-weight:600; color:#059669; font-size:14px;"><i class="fas fa-check-circle"></i> Automated Payment Tracking</p>
+            <div id="autoQrcode" style="background:white; padding:10px; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,0.1);"></div>
+            <div id="paymentStatus" style="margin-top:10px; font-weight:600; font-size:13px; color:#64748b;">
+                <i class="fas fa-spinner fa-spin"></i> Waiting for payment...
+            </div>
+            <p id="autoAmountText" style="margin:10px 0 0 0; font-weight:700; color:#059669; font-size:18px;">₹0.00</p>
+            <button class="btn-sm grey" style="margin-top:15px; width:100%; border:none; background:#e2e8f0;" onclick="cancelAutoUPI()">Cancel Automated</button>
+        </div>
+
+        {% if not store.upi_id %}
+        <p style="margin:8px 0 0 0; color:#ef4444; font-size:12px;"><i class="fas fa-exclamation-triangle"></i> Store UPI ID not set in Store Settings.</p>
+        {% endif %}
+      </div>
+
       <div class="bill-btns">
         <button class="btn-clear" onclick="clearCart()"><i class="fas fa-trash"></i></button>
         <button class="btn-save" style="background:#25D366; color:white; border-color:#25D366;" onclick="saveBill('whatsapp')"><i class="fab fa-whatsapp"></i> &nbsp;WhatsApp</button>
@@ -299,6 +353,7 @@ const WS_MANAGERS_URL  = '{% url "wholesale_managers" %}';
 const WS_REQUEST_OTP   = '{% url "wholesale_request_otp" %}';
 const WS_VERIFY_URL    = '{% url "wholesale_verify_otp" %}';
 const PRINT_BASE       = '/billing/print/';
+const CAN_EDIT_PRICE   = {% if profile.is_superadmin or profile.role == 'AREAMANAGER' or profile.role == 'WHOLESALE_EXEC' %}true{% else %}false{% endif %};
 </script>
 <script src="{% static 'pos/js/billing.js' %}?v=6"></script>
 <script>
@@ -336,5 +391,192 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   }
 });
+</script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+let upiQR = null;
+let autoQR = null;
+let phonepeInterval = null;
+let currentTxId = null;
+
+const STORE_UPI_ID = "{{ store.upi_id|escapejs }}";
+const STORE_NAME = "{{ store.name|urlencode }}";
+
+const PHONEPE_INIT_URL = "{% url 'phonepe_initiate' %}";
+const PHONEPE_STATUS_URL = "{% url 'phonepe_status' %}";
+
+function drawUPIQRCode() {
+    const qrContainer = document.getElementById('upiQRContainer');
+    const grandStr = document.getElementById('grandVal').textContent.replace('₹', '').replace(/,/g, '').trim();
+    const grandAmt = parseFloat(grandStr) || 0;
+
+    // If we're currently in automated mode, don't revert to manual just yet
+    if (document.getElementById('upiAutoSection').style.display === 'flex') {
+        document.getElementById('autoAmountText').textContent = '₹' + grandAmt.toFixed(2);
+        return;
+    }
+
+    if (paymentMode === 'UPI' && grandAmt > 0) {
+        qrContainer.style.display = 'flex';
+        document.getElementById('upiManualSection').style.display = 'flex';
+        document.getElementById('upiAutoSection').style.display = 'none';
+        document.getElementById('upiAmountText').textContent = '₹' + grandAmt.toFixed(2);
+        
+        let upiString = `upi://pay?pa=${STORE_UPI_ID}&pn=${STORE_NAME}&am=${grandAmt.toFixed(2)}&cu=INR`;
+        
+        if (!upiQR) {
+            upiQR = new QRCode(document.getElementById("qrcode"), {
+                text: upiString,
+                width: 150,
+                height: 150,
+                colorDark : "#0f172a",
+                colorLight : "#ffffff",
+                correctLevel : QRCode.CorrectLevel.H
+            });
+        } else {
+            upiQR.clear();
+            upiQR.makeCode(upiString);
+        }
+    } else {
+        qrContainer.style.display = 'none';
+        cancelAutoUPI();
+    }
+}
+
+async function initiatePhonePe() {
+    const grandStr = document.getElementById('grandVal').textContent.replace('₹', '').replace(/,/g, '').trim();
+    const grandAmt = parseFloat(grandStr) || 0;
+    
+    if (grandAmt <= 0) {
+        toast('Cart is empty!', 'error');
+        return;
+    }
+
+    const btn = event.target.closest('button');
+    const originalHTML = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Connecting...';
+
+    try {
+        const response = await fetch(PHONEPE_INIT_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+            body: JSON.stringify({ amount: grandAmt })
+        });
+        
+        const res = await response.json();
+        if (res.success) {
+            const data = res.data;
+            const upiIntent = data.instrumentResponse.intentUrl;
+            currentTxId = res.transaction_id;
+            
+            // Switch UI sections
+            document.getElementById('upiManualSection').style.display = 'none';
+            document.getElementById('upiAutoSection').style.display = 'flex';
+            document.getElementById('autoAmountText').textContent = '₹' + grandAmt.toFixed(2);
+            document.getElementById('paymentStatus').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Waiting for payment...';
+            document.getElementById('paymentStatus').style.color = '#64748b';
+
+            // Draw Automated QR
+            if (!autoQR) {
+                autoQR = new QRCode(document.getElementById("autoQrcode"), {
+                    text: upiIntent,
+                    width: 180,
+                    height: 180,
+                    colorDark : "#059669",
+                    colorLight : "#ffffff",
+                    correctLevel : QRCode.CorrectLevel.H
+                });
+            } else {
+                autoQR.clear();
+                autoQR.makeCode(upiIntent);
+            }
+
+            // Start Polling
+            startPolling(currentTxId);
+        } else {
+            toast('PhonePe Error: ' + res.error, 'error');
+            btn.disabled = false;
+            btn.innerHTML = originalHTML;
+        }
+    } catch (e) {
+        toast('Network error while connecting to PhonePe.', 'error');
+        btn.disabled = false;
+        btn.innerHTML = originalHTML;
+    }
+}
+
+function startPolling(txId) {
+    if (phonepeInterval) clearInterval(phonepeInterval);
+    
+    phonepeInterval = setInterval(async () => {
+        try {
+            const response = await fetch(`${PHONEPE_STATUS_URL}?transaction_id=${txId}`);
+            const res = await response.json();
+            
+            if (res.success) {
+                if (res.status === 'SUCCESS') {
+                    clearInterval(phonepeInterval);
+                    handlePaymentSuccess();
+                } else if (res.status === 'FAILED') {
+                    clearInterval(phonepeInterval);
+                    handlePaymentFailure(res.message);
+                }
+                // If PENDING, do nothing and continue polling
+            }
+        } catch (e) {
+            console.error('Polling error:', e);
+        }
+    }, 3000);
+}
+
+function handlePaymentSuccess() {
+    document.getElementById('paymentStatus').innerHTML = '<i class="fas fa-check-circle"></i> Payment Successful!';
+    document.getElementById('paymentStatus').style.color = '#059669';
+    toast('✓ Payment Received Automatically!', 'success');
+    
+    // Auto-save the bill!
+    setTimeout(() => {
+        saveBill('print');
+    }, 1500);
+}
+
+function handlePaymentFailure(msg) {
+    document.getElementById('paymentStatus').innerHTML = '<i class="fas fa-times-circle"></i> Payment Failed';
+    document.getElementById('paymentStatus').style.color = '#ef4444';
+    toast('❌ Payment Failed: ' + (msg || 'Unknown reason'), 'error');
+    
+    setTimeout(() => {
+        cancelAutoUPI();
+    }, 3000);
+}
+
+function cancelAutoUPI() {
+    if (phonepeInterval) {
+        clearInterval(phonepeInterval);
+        phonepeInterval = null;
+    }
+    currentTxId = null;
+    document.getElementById('upiAutoSection').style.display = 'none';
+    if (paymentMode === 'UPI') {
+        document.getElementById('upiManualSection').style.display = 'flex';
+    }
+}
+
+// Hook into existing functions
+const origSetPayment = setPayment;
+setPayment = function(mode, btn) {
+    origSetPayment(mode, btn);
+    drawUPIQRCode();
+};
+
+const origRecalc = recalc;
+recalc = function() {
+    origRecalc();
+    if(typeof drawUPIQRCode === 'function') {
+        drawUPIQRCode();
+    }
+};
 </script>
 {% endblock %}

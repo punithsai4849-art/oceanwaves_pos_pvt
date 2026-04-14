@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   Ocean Waves POS — billing.js  v4
+   OCEANWAVES POS — billing.js  v4
    Dual pricing · PIN-based wholesale approval · High-volume optimised
 ═══════════════════════════════════════════════════════════════ */
 
@@ -18,9 +18,10 @@ function setBillType(type) {
   document.getElementById('btnWS').classList.toggle('active', isWS);
   document.getElementById('btnRetail').classList.toggle('active', !isWS);
   document.getElementById('wsForm').style.display  = isWS ? '' : 'none';
-  document.getElementById('cgstRow').style.display = isWS ? '' : 'none';
-  document.getElementById('sgstRow').style.display = isWS ? '' : 'none';
   
+  // Recalc will handle showing/hiding CGST/SGST rows based on the actual toggle state
+  recalc();
+
   const btnCredit = document.getElementById('btnCredit');
   if (btnCredit) {
       btnCredit.style.display = isWS ? 'flex' : 'none';
@@ -34,11 +35,10 @@ function setBillType(type) {
     cart[id].price = isWS ? cart[id].wsP : cart[id].retailP;
   });
   renderCart();
-  updateGstLabels();
 }
 
 function updateGstLabels() {
-  const rate = parseFloat(document.getElementById('gstRate')?.value || 5);
+  const rate = parseFloat(document.getElementById('gstRate')?.value || 18);
   const half = (rate / 2).toFixed(1);
   ['cgstLbl','sgstLbl'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = half; });
 }
@@ -90,7 +90,12 @@ function updateQty(id, val) {
 }
 function updatePrice(id, val) {
   const p = parseFloat(val);
-  if (!isNaN(p) && p >= 0) cart[id].price = p;
+  if (!isNaN(p) && p >= 0) {
+    cart[id].price = p;
+    // Also update the base price for current bill type so switching doesn't reset
+    if (billType === 'WHOLESALE') cart[id].wsP = p;
+    else cart[id].retailP = p;
+  }
   recalc();
 }
 
@@ -105,17 +110,21 @@ function renderCart() {
   body.innerHTML = keys.map(id => {
     const it    = cart[id];
     const total = (it.qty * it.price).toFixed(2);
-    const hint  = billType === 'WHOLESALE'
-      ? `<div style="font-size:9px;color:#0d9488;">WS</div>`
-      : `<div style="font-size:9px;color:#16a34a;">Retail</div>`;
     return `<tr>
       <td><div class="ci-name">${esc(it.name)}</div></td>
       <td><input type="number" class="qty-in" data-id="${id}"
             value="${it.qty}" min="0.001" max="${it.stock}" step="0.5"
-            onchange="updateQty('${id}',this.value)"></td>
-      <td><input type="number" class="price-in" data-id="${id}"
-            value="${it.price}" min="0" step="0.01"
-            onchange="updatePrice('${id}',this.value)">${hint}</td>
+            oninput="updateQty('${id}',this.value)"></td>
+      <td>
+        <div class="price-edit-wrap">
+          ${CAN_EDIT_PRICE ? '<span class="price-edit-icon">✏️</span>' : ''}
+          <input type="number" class="price-in ${CAN_EDIT_PRICE ? 'editable' : ''}" data-id="${id}"
+                value="${it.price}" min="0" step="0.5"
+                oninput="updatePrice('${id}',this.value)"
+                ${CAN_EDIT_PRICE ? '' : 'readonly'}
+                title="${CAN_EDIT_PRICE ? 'Tap to edit price' : 'Price is fixed'}">
+        </div>
+      </td>
       <td class="ci-total">₹${total}</td>
       <td><button class="btn-rm" onclick="removeItem('${id}')">
             <i class="fas fa-times"></i></button></td>
@@ -133,15 +142,66 @@ function recalc() {
   else            { discRow.style.display = 'none'; }
   const afterD = Math.max(0, sub - disc);
   document.getElementById('subtotalVal').textContent = `₹${sub.toFixed(2)}`;
-  let grand = afterD;
-  if (billType === 'WHOLESALE') {
-    const rate = parseFloat(document.getElementById('gstRate')?.value || 5), half = rate / 2;
-    const cgst = afterD * half / 100, sgst = cgst;
+
+  // GST — read toggle state
+  const gstOn   = document.getElementById('gstToggle')?.checked;
+  const gstRate = gstOn ? parseFloat(document.getElementById('gstRate')?.value || 18) : 0;
+  const half    = gstRate / 2;
+  const cgst    = gstOn ? (afterD * half / 100) : 0;
+  const sgst    = cgst;
+
+  const cgstRow = document.getElementById('cgstRow');
+  const sgstRow = document.getElementById('sgstRow');
+  if (gstOn && gstRate > 0) {
+    cgstRow.style.display = '';
+    sgstRow.style.display = '';
+    document.getElementById('cgstLbl').textContent = half.toFixed(1);
+    document.getElementById('sgstLbl').textContent = half.toFixed(1);
     document.getElementById('cgstVal').textContent = `₹${cgst.toFixed(2)}`;
     document.getElementById('sgstVal').textContent = `₹${sgst.toFixed(2)}`;
-    grand = afterD + cgst + sgst;
+  } else {
+    cgstRow.style.display = 'none';
+    sgstRow.style.display = 'none';
   }
+
+  const grand = afterD + cgst + sgst;
   document.getElementById('grandVal').textContent = `₹${grand.toFixed(2)}`;
+}
+
+// ── Update product tile stock in DOM after a successful sale ──────────────
+function updateStockInUI(soldItems) {
+  soldItems.forEach(({ product_id, quantity }) => {
+    const tile = document.querySelector(`.prod-tile[data-id="${product_id}"]`);
+    if (!tile) return;
+
+    const newStock  = Math.max(0, parseFloat(tile.dataset.stock) - quantity);
+    const lowAlert  = parseFloat(tile.dataset.lowAlert || 0);
+    tile.dataset.stock = newStock;
+
+    // Update displayed stock text
+    const stockEl = tile.querySelector('.pt-stock');
+    if (stockEl) {
+      stockEl.textContent = `${newStock} kg`;
+      stockEl.classList.toggle('low', newStock > 0 && newStock <= lowAlert);
+    }
+
+    // Remove old badge
+    tile.querySelector('.pt-badge')?.remove();
+
+    // Update tile classes and re-add badge
+    tile.classList.remove('oos', 'low');
+    if (newStock <= 0) {
+      tile.classList.add('oos');
+      const b = document.createElement('div');
+      b.className = 'pt-badge oos-badge'; b.textContent = 'Out';
+      tile.appendChild(b);
+    } else if (newStock <= lowAlert) {
+      tile.classList.add('low');
+      const b = document.createElement('div');
+      b.className = 'pt-badge low-badge'; b.textContent = 'Low';
+      tile.appendChild(b);
+    }
+  });
 }
 
 // ── Save entry point ───────────────────────────────────────────
@@ -159,11 +219,14 @@ async function saveBill(action = 'print') {
     btns.forEach(b => { b.disabled = false; });
     if (r.success) {
       toast(`✓ Bill #${r.bill_number} saved!`, 'success');
+      // Snapshot cart BEFORE resetBill() clears it
+      const soldItems = Object.entries(cart).map(([id, it]) => ({ product_id: parseInt(id), quantity: it.qty }));
       if (action === 'whatsapp' && r.whatsapp_url) {
         window.open(r.whatsapp_url, '_blank');
       } else {
         window.open(PRINT_BASE + r.bill_id + '/', '_blank');
       }
+      updateStockInUI(soldItems);
       resetBill();
     } else { toast('❌ ' + r.error, 'error'); }
   } else {
@@ -177,17 +240,20 @@ async function saveBill(action = 'print') {
 }
 
 function getBillPayload(extra = {}) {
+  const gstOn   = document.getElementById('gstToggle')?.checked;
+  const gstRate = gstOn ? parseFloat(document.getElementById('gstRate')?.value || 18) : 0;
   return {
     items: Object.entries(cart).map(([id, it]) => ({
       product_id: parseInt(id), quantity: it.qty, selling_price: it.price,
     })),
     bill_type:      billType,
     payment_mode:   paymentMode,
-    gst_rate:       billType === 'WHOLESALE' ? parseFloat(document.getElementById('gstRate').value) : 0,
+    gst_rate:       gstRate,
     discount:       parseFloat(document.getElementById('discountAmt')?.value || 0) || 0,
-    customer_name:  document.getElementById('custName')?.value?.trim()  || '',
-    customer_phone: document.getElementById('custPhone')?.value?.trim() || '',
-    customer_gst:   document.getElementById('custGST')?.value?.trim()   || '',
+    customer_name:    document.getElementById('custName')?.value?.trim()    || '',
+    customer_phone:   document.getElementById('custPhone')?.value?.trim()   || '',
+    customer_gst:     document.getElementById('custGST')?.value?.trim()     || '',
+    customer_address: document.getElementById('custAddress')?.value?.trim() || '',
     ...extra,
   };
 }
@@ -223,9 +289,12 @@ function buildBillStrip() {
   const items   = Object.values(cart);
   const sub     = items.reduce((s, i) => s + i.qty * i.price, 0);
   const disc    = parseFloat(document.getElementById('discountAmt')?.value || 0) || 0;
-  const rate    = parseFloat(document.getElementById('gstRate')?.value || 5);
+  
+  const gstOn   = document.getElementById('gstToggle')?.checked;
+  const rate    = gstOn ? parseFloat(document.getElementById('gstRate')?.value || 18) : 0;
+  
   const afterD  = sub - disc;
-  const grand   = afterD + afterD * rate / 100;
+  const grand   = afterD + (afterD * rate / 100);
   const summary = items.slice(0, 3).map(i => `${i.name} ${i.qty}kg`).join(', ')
                 + (items.length > 3 ? ` +${items.length - 3} more` : '');
   return `<div class="pbs-inner">
@@ -451,6 +520,8 @@ async function verifyPin() {
       // Flash success
       document.querySelectorAll('.pin-box').forEach(b => b.classList.add('filled'));
       setPinFeedback(`✓ Approved by ${data.approved_by}!`, 'success');
+      // Snapshot cart BEFORE the timeout clears it via resetBill()
+      const soldItems = Object.entries(cart).map(([id, it]) => ({ product_id: parseInt(id), quantity: it.qty }));
       setTimeout(() => {
         closePinModal();
         toast(`✓ Bill #${data.bill_number} approved by ${data.approved_by}!`, 'success');
@@ -459,6 +530,7 @@ async function verifyPin() {
         } else {
           window.open(PRINT_BASE + data.bill_id + '/', '_blank');
         }
+        updateStockInUI(soldItems);
         resetBill();
       }, 700);
 

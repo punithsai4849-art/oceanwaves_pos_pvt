@@ -3,4 +3,4 @@ from django.apps import AppConfig
 class PosConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
     name               = 'pos'
-    verbose_name       = 'Ocean Waves Multi-Store POS'
+    verbose_name       = 'OCEANWAVES Multi-Store POS'

@@ -1,0 +1,305 @@
+{% extends 'pos/base.html' %}
+{% block title %}Ledger Books — {{ store.name }}{% endblock %}
+
+{% block extra_css %}
+<style>
+/* ── Page header ── */
+.shelf-hero {
+  display: flex; justify-content: space-between; align-items: center;
+  flex-wrap: wrap; gap: 16px; margin-bottom: 28px;
+}
+.shelf-hero h1 { font-size: 1.5rem; font-weight: 800; display: flex; align-items: center; gap: 10px; margin: 0; }
+.shelf-hero p  { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+
+/* ── Notebook grid ── */
+.notebook-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 20px;
+  margin-bottom: 32px;
+}
+
+/* ── Notebook card ── */
+.notebook {
+  position: relative;
+  border-radius: 16px;
+  overflow: hidden;
+  cursor: pointer;
+  text-decoration: none;
+  display: flex; flex-direction: column;
+  box-shadow: 0 4px 20px rgba(0,0,0,.12);
+  transition: transform .18s, box-shadow .18s;
+  background: white;
+  border: 1.5px solid rgba(0,0,0,.06);
+}
+.notebook:hover { transform: translateY(-5px) rotate(.5deg); box-shadow: 0 12px 36px rgba(0,0,0,.18); }
+
+/* Spine strip on the left */
+.notebook-spine {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 14px;
+  border-radius: 16px 0 0 16px;
+}
+
+/* Cover */
+.notebook-cover {
+  padding: 24px 18px 18px 28px;
+  flex: 1; display: flex; flex-direction: column; gap: 10px;
+}
+.nb-icon {
+  width: 44px; height: 44px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px; color: white; margin-bottom: 4px;
+}
+.nb-name { font-size: 15px; font-weight: 800; color: #0f172a; line-height: 1.2; }
+.nb-desc { font-size: 11.5px; color: #64748b; line-height: 1.4; }
+
+/* Bottom strip */
+.notebook-footer {
+  padding: 10px 18px 12px 28px;
+  display: flex; justify-content: space-between; align-items: center;
+  border-top: 1px solid #f1f5f9;
+  background: #f8fafc;
+}
+.nb-entries { font-size: 11px; color: #94a3b8; font-weight: 600; }
+
+.nb-balance { font-size: 13px; font-weight: 800; }
+.nb-balance.pos { color: #16a34a; }
+.nb-balance.neg { color: #dc2626; }
+
+/* Delete btn */
+.nb-del-btn {
+  position: absolute; top: 10px; right: 10px;
+  background: rgba(220,38,38,.1); border: none; border-radius: 7px;
+  color: #dc2626; width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; cursor: pointer; opacity: 0; transition: opacity .15s;
+}
+.notebook:hover .nb-del-btn { opacity: 1; }
+.nb-del-btn:hover { background: rgba(220,38,38,.2); }
+
+/* ── New Book card ── */
+.notebook-new {
+  border-radius: 16px; border: 2px dashed var(--border);
+  min-height: 200px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 8px;
+  cursor: pointer; color: var(--muted); transition: .18s;
+  background: white; padding: 20px;
+}
+.notebook-new:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-xl); }
+.notebook-new i { font-size: 28px; }
+.notebook-new span { font-size: 13px; font-weight: 700; }
+
+/* ── Modal ── */
+.modal-overlay {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5);
+  z-index: 2000; align-items: center; justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+.modal-box {
+  background: white; border-radius: 20px; padding: 28px 28px 24px;
+  width: 420px; max-width: 95vw; box-shadow: 0 24px 60px rgba(0,0,0,.2);
+  animation: modalIn .2s ease;
+}
+@keyframes modalIn { from { transform: scale(.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.modal-title { font-size: 16px; font-weight: 800; margin-bottom: 18px; display: flex; align-items: center; gap: 8px; }
+.modal-fg { margin-bottom: 14px; }
+.modal-fg label { display: block; font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 5px; }
+.modal-fg input, .modal-fg textarea, .modal-fg select {
+  width: 100%; padding: 9px 12px; border-radius: 9px;
+  border: 2px solid var(--border); background: #f8fafc;
+  color: var(--text); font-size: 13px; font-family: inherit; outline: none;
+  transition: border-color .15s;
+}
+.modal-fg input:focus, .modal-fg textarea:focus, .modal-fg select:focus { border-color: var(--primary); background: white; }
+
+/* Color swatches */
+.color-picker { display: flex; gap: 8px; flex-wrap: wrap; }
+.color-swatch {
+  width: 28px; height: 28px; border-radius: 50%; cursor: pointer;
+  border: 3px solid transparent; transition: transform .12s;
+}
+.color-swatch:hover { transform: scale(1.15); }
+.color-swatch.selected { border-color: white; box-shadow: 0 0 0 2px #0f172a; }
+
+/* Icon grid */
+.icon-picker { display: flex; gap: 8px; flex-wrap: wrap; }
+.icon-opt {
+  width: 36px; height: 36px; border-radius: 8px; border: 2px solid var(--border);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  font-size: 14px; color: var(--muted); transition: .12s;
+}
+.icon-opt:hover { border-color: var(--primary); color: var(--primary); }
+.icon-opt.selected { background: var(--primary); border-color: var(--primary); color: white; }
+
+.modal-actions { display: flex; gap: 10px; margin-top: 20px; }
+
+/* Empty state */
+.empty-shelf { text-align: center; padding: 60px 20px; color: var(--muted); }
+.empty-shelf i { font-size: 56px; color: var(--primary-l); margin-bottom: 14px; display: block; }
+.empty-shelf p { font-size: 15px; }
+
+/* Store picker */
+.store-picker-row { margin-bottom: 20px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pg">
+
+  <div class="shelf-hero">
+    <div>
+      <h1><i class="fas fa-book-open" style="color:var(--primary);"></i> My Ledger Books</h1>
+      <p>{{ store.name }} — click any notebook to view its entries</p>
+    </div>
+    <button class="btn-primary" onclick="openCreateModal()">
+      <i class="fas fa-plus"></i> New Ledger Book
+    </button>
+  </div>
+
+  {% if profile.is_superadmin and all_stores %}
+  <div class="store-picker-row">
+    <form method="GET" style="display:flex;align-items:center;gap:10px;">
+      <label style="font-weight:700;color:var(--muted);font-size:13px;"><i class="fas fa-store"></i> Store:</label>
+      <select name="store_id" onchange="this.form.submit()" style="padding:7px 12px;border-radius:8px;border:2px solid var(--border);background:white;font-size:13px;">
+        {% for s in all_stores %}
+        <option value="{{ s.id }}" {% if s.id == store.id %}selected{% endif %}>{{ s.name }}</option>
+        {% endfor %}
+      </select>
+    </form>
+  </div>
+  {% endif %}
+
+  {% if books %}
+  <div class="notebook-grid">
+    {% for book in books %}
+    <a href="{% url 'ledger_book_detail' book.id %}" class="notebook" id="nb-{{ book.id }}">
+      <div class="notebook-spine" style="background:{{ book.color }};"></div>
+      <div class="notebook-cover">
+        <div class="nb-icon" style="background:{{ book.color }};">
+          <i class="fas {{ book.icon }}"></i>
+        </div>
+        <div class="nb-name">{{ book.name }}</div>
+        {% if book.description %}
+        <div class="nb-desc">{{ book.description|truncatechars:70 }}</div>
+        {% endif %}
+      </div>
+      <div class="notebook-footer">
+        <span class="nb-entries">{{ book.entry_count }} entries</span>
+        {% with bal=book.current_balance %}
+        <span class="nb-balance {% if bal >= 0 %}pos{% else %}neg{% endif %}">
+          ₹{{ bal|floatformat:2 }}
+        </span>
+        {% endwith %}
+      </div>
+
+      {# Delete button — stops propagation so link doesn't fire #}
+      {% if profile.is_superadmin or profile.is_owner %}
+      <form method="POST" action="{% url 'ledger_view' %}"
+            onsubmit="event.stopPropagation(); return confirm('Delete &quot;{{ book.name }}&quot; and all its entries?');"
+            onclick="event.stopPropagation();">
+        {% csrf_token %}
+        <input type="hidden" name="action"   value="delete_book">
+        <input type="hidden" name="book_id"  value="{{ book.id }}">
+        {% if profile.is_superadmin %}
+        <input type="hidden" name="store_id" value="{{ store.id }}">
+        {% endif %}
+        <button type="submit" class="nb-del-btn" title="Delete this ledger book">
+          <i class="fas fa-trash-alt"></i>
+        </button>
+      </form>
+      {% endif %}
+    </a>
+    {% endfor %}
+
+    <!-- New book card -->
+    <div class="notebook-new" onclick="openCreateModal()">
+      <i class="fas fa-plus-circle"></i>
+      <span>New Ledger Book</span>
+    </div>
+  </div>
+
+  {% else %}
+  <div class="empty-shelf">
+    <i class="fas fa-book-open"></i>
+    <p>No ledger books yet.<br>Create your first notebook above.</p>
+    <button class="btn-primary" style="margin-top:18px;" onclick="openCreateModal()">
+      <i class="fas fa-plus"></i> Create First Book
+    </button>
+  </div>
+  {% endif %}
+
+</div>
+
+<!-- Create Book Modal -->
+<div class="modal-overlay" id="createModal" onclick="closeIfOutside(event)">
+  <div class="modal-box">
+    <div class="modal-title"><i class="fas fa-book" style="color:var(--primary);"></i> New Ledger Book</div>
+    <form method="POST" action="{% url 'ledger_view' %}{% if profile.is_superadmin %}?store_id={{ store.id }}{% endif %}">
+      {% csrf_token %}
+      <input type="hidden" name="action"   value="create_book">
+      <input type="hidden" name="store_id" value="{{ store.id }}">
+
+      <div class="modal-fg">
+        <label>Book Name *</label>
+        <input type="text" name="book_name" placeholder="e.g. Cash Ledger, Bank Account, Supplier Dues" required>
+      </div>
+
+      <div class="modal-fg">
+        <label>Description (optional)</label>
+        <textarea name="book_desc" rows="2" placeholder="Short note about this ledger book..."></textarea>
+      </div>
+
+      <div class="modal-fg">
+        <label>Colour</label>
+        <div class="color-picker">
+          {% for hex, name in color_choices %}
+          <div class="color-swatch {% if forloop.first %}selected{% endif %}"
+               style="background:{{ hex }};"
+               title="{{ name }}"
+               onclick="selectColor(this, '{{ hex }}')"></div>
+          {% endfor %}
+        </div>
+        <input type="hidden" name="book_color" id="selectedColor" value="{{ color_choices.0.0 }}">
+      </div>
+
+      <div class="modal-fg">
+        <label>Icon</label>
+        <div class="icon-picker">
+          {% for cls, label in icon_choices %}
+          <div class="icon-opt {% if forloop.first %}selected{% endif %}"
+               title="{{ label }}"
+               onclick="selectIcon(this, '{{ cls }}')">
+            <i class="fas {{ cls }}"></i>
+          </div>
+          {% endfor %}
+        </div>
+        <input type="hidden" name="book_icon" id="selectedIcon" value="{{ icon_choices.0.0 }}">
+      </div>
+
+      <div class="modal-actions">
+        <button type="submit" class="btn-primary" style="flex:1;justify-content:center;">
+          <i class="fas fa-plus"></i> Create Book
+        </button>
+        <button type="button" onclick="closeCreateModal()" class="btn-secondary">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openCreateModal()  { document.getElementById('createModal').classList.add('open'); }
+function closeCreateModal() { document.getElementById('createModal').classList.remove('open'); }
+function closeIfOutside(e)  { if (e.target === e.currentTarget) closeCreateModal(); }
+
+function selectColor(el, hex) {
+  document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('selected'));
+  el.classList.add('selected');
+  document.getElementById('selectedColor').value = hex;
+}
+function selectIcon(el, cls) {
+  document.querySelectorAll('.icon-opt').forEach(s => s.classList.remove('selected'));
+  el.classList.add('selected');
+  document.getElementById('selectedIcon').value = cls;
+}
+</script>
+{% endblock %}

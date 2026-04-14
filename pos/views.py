@@ -10,7 +10,9 @@ from django.views.decorators.http import require_POST
 import json, decimal
 from datetime import date, timedelta
 
-from .models import Store, UserProfile, Product, Sale, SaleItem, StockLog, Expense, AreaManagerStore, WholesaleApproval, Employee, PaySlip
+from .models import Store, UserProfile, Product, Sale, SaleItem, StockLog, Expense, AreaManagerStore, WholesaleApproval, Employee, PaySlip, StockRequest, Notification
+from django.core.mail import send_mail
+from django.conf import settings
 
 
 def today_range():
@@ -83,6 +85,51 @@ def assert_store_access(profile, store):
     return profile.store_id == store.id
 
 
+# ── Notification Helpers ──────────────────────────────────────────────────────
+def create_notification(user, title, message, level='INFO', link=None):
+    """Creates an in-app notification for a specific user."""
+    try:
+        Notification.objects.create(
+            user=user, title=title, message=message, level=level, link=link
+        )
+    except Exception as e:
+        print(f"Notification creation error: {e}")
+
+def send_alert_email(subject, message, recipient_list):
+    """Sends an email alert to the specified recipients."""
+    if not recipient_list:
+        return
+    try:
+        send_mail(
+            subject,
+            message,
+            settings.DEFAULT_FROM_EMAIL,
+            recipient_list,
+            fail_silently=True,
+        )
+    except Exception as e:
+        print(f"Email error: {e}")
+
+def notify_area_managers(store, title, message, level='INFO', link=None, include_admin=False):
+    """Notifies all area managers assigned to a store, and optionally the global admin."""
+    # Find all AMs for this store
+    ams = UserProfile.objects.filter(
+        managed_stores__store=store
+    ).filter(Q(role='AREAMANAGER') | Q(role='WHOLESALE_EXEC'))
+    
+    recipients = []
+    for am in ams:
+        create_notification(am.user, title, message, level, link)
+        if am.user.email:
+            recipients.append(am.user.email)
+    
+    if include_admin and settings.ADMIN_NOTIFICATION_EMAIL:
+        recipients.append(settings.ADMIN_NOTIFICATION_EMAIL)
+    
+    if recipients:
+        send_alert_email(title, message, list(set(recipients)))
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  AUTH
 # ══════════════════════════════════════════════════════════════════════════════
@@ -115,7 +162,32 @@ def login_view(request):
             cache.delete(lock_key)
             login(request, user)
             log_event(request, 'LOGIN_SUCCESS', f'username={user.username}')
+
+            # ── Record Attendance ──────────────────────────────────────────
+            import threading
+            import datetime as dt
+            from .models import LoginAttendance
+            profile_obj = get_profile(user)
+            now_local   = timezone.localtime(timezone.now())
+
+            def _record_and_notify():
+                try:
+                    LoginAttendance.objects.create(
+                        store      = profile_obj.store,
+                        user       = user,
+                        login_date = now_local.date(),
+                        login_time = now_local.time(),
+                        ip_address = ip[:50],
+                    )
+                except Exception:
+                    pass
+                # TODO: re-add admin login notification email with better logic
+
+            threading.Thread(target=_record_and_notify, daemon=True).start()
+            # ──────────────────────────────────────────────────────────────
+
             return redirect('dashboard')
+
         else:
             cache.set(lock_key, attempts + 1, timeout=1800)  # 30-min window
             time.sleep(0.3) # Throttle to slow down brute force
@@ -205,6 +277,7 @@ def dashboard(request):
             'total_bills':   Sale.objects.filter(created_at__range=(t_start, t_end)).count(),
             'urgent_credits': urgent_credits,
             'recent_otps':   recent_otps,
+            'unread_notifications': Notification.objects.filter(user=request.user, is_read=False).order_by('-created_at')[:10]
         }
         return render(request, 'pos/dashboard_admin.html', ctx)
 
@@ -250,6 +323,7 @@ def dashboard(request):
             'out_count':    out_products.count(),
             'recent_sales': recent_sales,
             'urgent_credits': urgent_credits,
+            'unread_notifications': Notification.objects.filter(user=request.user, is_read=False).order_by('-created_at')[:10]
         }
         return render(request, 'pos/dashboard_store.html', ctx)
 
@@ -289,6 +363,7 @@ def store_create(request):
             whatsapp_number=request.POST.get('whatsapp_number', '').strip(),
             email=request.POST.get('email', '').strip(),
             gstin=request.POST.get('gstin', '').strip(),
+            upi_id=request.POST.get('upi_id', '').strip(),
         )
         messages.success(request, f'Store "{request.POST["name"]}" created!')
     return redirect('store_list')
@@ -308,6 +383,7 @@ def store_edit(request, store_id):
         store.whatsapp_number = request.POST.get('whatsapp_number', store.whatsapp_number).strip()
         store.email           = request.POST.get('email', store.email).strip()
         store.gstin           = request.POST.get('gstin', store.gstin).strip()
+        store.upi_id          = request.POST.get('upi_id', store.upi_id).strip()
         store.is_active       = request.POST.get('is_active') == 'on'
         store.save()
         messages.success(request, 'Store updated.')
@@ -377,8 +453,21 @@ def user_management(request):
         messages.error(request, 'Access denied.')
         return redirect('dashboard')
     users  = UserProfile.objects.select_related('user', 'store').order_by('store__name', 'role')
+    
+    store_filter = request.GET.get('store_filter')
+    if store_filter:
+        if store_filter.isdigit():
+            users = users.filter(store_id=store_filter)
+        elif store_filter == 'none':
+            users = users.filter(store__isnull=True)
+            
     stores = Store.objects.filter(is_active=True)
-    return render(request, 'pos/users.html', {'users': users, 'stores': stores, 'profile': profile})
+    return render(request, 'pos/users.html', {
+        'users': users, 
+        'stores': stores, 
+        'profile': profile,
+        'store_filter': store_filter
+    })
 
 
 @login_required
@@ -395,6 +484,10 @@ def user_create(request):
         email      = request.POST.get('email', '').strip()
         role       = request.POST.get('role', 'STAFF')
         store_id   = request.POST.get('store_id')
+        
+        # Upper management don't belong to a specific store
+        if role in ('AREAMANAGER', 'WHOLESALE_EXEC', 'SUBADMIN', 'SUPERADMIN'):
+            store_id = None
 
         if not username:
             messages.error(request, 'Username is required.')
@@ -404,13 +497,13 @@ def user_create(request):
             messages.error(request, f'Username "{username}" is already taken.')
         elif User.objects.filter(email=email).exists():
             messages.error(request, f'Email "{email}" is already taken by another account.')
+        elif role in ('STAFF', 'OWNER') and (not store_id or store_id == 'None'):
+            messages.error(request, 'Primary Store is required for this role to create their Employee record.')
+            return redirect('user_management')
         else:
-            ALLOWED_ROLES = ['SUBADMIN', 'OWNER', 'STAFF', 'AREAMANAGER', 'WHOLESALE_EXEC']
+            ALLOWED_ROLES = ['SUBADMIN', 'OWNER', 'STAFF', 'AREAMANAGER', 'WHOLESALE_EXEC', 'SUPERADMIN']
             if role not in ALLOWED_ROLES:
                 messages.error(request, 'Invalid role assignment.')
-                return redirect('user_management')
-            if role == 'SUPERADMIN':
-                messages.error(request, 'Cannot create Super Admin via this interface.')
                 return redirect('user_management')
                 
             from django.contrib.auth.password_validation import validate_password
@@ -426,6 +519,11 @@ def user_create(request):
 
             u = User.objects.create_user(username=username, password=password, email=email,
                                          first_name=first_name, last_name=last_name)
+            if role == 'SUPERADMIN':
+                u.is_superuser = True
+                u.is_staff = True
+                u.save()
+            
             log_event(request, 'USER_CREATED', f'created_user={username} role={role}')
             
             store = None
@@ -459,6 +557,49 @@ def user_create(request):
             messages.success(request, f'User "{username}" created as {role_label}.')
             if role in ('AREAMANAGER', 'WHOLESALE_EXEC'):
                 messages.info(request, f'Go to Area Managers page to assign stores and set a PIN for {username}.')
+
+            # ── Auto-create Employee record for store-based roles ──
+            if role != 'SUPERADMIN':
+                import datetime as _dt
+                full_name     = f"{first_name} {last_name}".strip() or username
+                designation   = request.POST.get('designation', '').strip()
+                emp_type      = request.POST.get('employment_type', 'FULLTIME')
+                basic_salary  = request.POST.get('basic_salary', '0').strip() or '0'
+                allowances    = request.POST.get('allowances', '0').strip() or '0'
+                deductions    = request.POST.get('deductions', '0').strip() or '0'
+                date_str      = request.POST.get('date_joined', '').strip()
+                try:
+                    date_joined = _dt.date.fromisoformat(date_str) if date_str else _dt.date.today()
+                except ValueError:
+                    date_joined = _dt.date.today()
+                from .models import Employee
+                
+                if store:
+                    last_emp = Employee.objects.filter(store=store).order_by('-id').first()
+                    num      = (last_emp.id + 1) if last_emp else 1
+                    emp_id   = f"EMP{store.id}{str(num).zfill(4)}"
+                else:
+                    last_emp = Employee.objects.filter(store__isnull=True).order_by('-id').first()
+                    num      = (last_emp.id + 1) if last_emp else 1
+                    emp_id   = f"HO{str(num).zfill(4)}"
+                    
+                up_obj   = UserProfile.objects.get(user=u)
+                Employee.objects.create(
+                    store           = store,
+                    user_profile    = up_obj,
+                    employee_id     = emp_id,
+                    full_name       = full_name,
+                    phone           = phone,
+                    email           = email,
+                    designation     = designation,
+                    employment_type = emp_type,
+                    basic_salary    = basic_salary,
+                    allowances      = allowances,
+                    deductions      = deductions,
+                    date_joined     = date_joined,
+                    created_by      = request.user,
+                )
+                messages.info(request, f'Employee record created automatically for "{full_name}".')
 
     return redirect('user_management')
 
@@ -567,6 +708,75 @@ def billing(request):
 
 from django.views.decorators.http import require_POST
 from django_ratelimit.decorators import ratelimit
+import uuid
+from .phonepe_integration import PhonePeGateway
+
+@require_POST
+@login_required
+@require_profile
+def phonepe_initiate(request):
+    """
+    Creates a transaction on PhonePe and returns the payment data.
+    """
+    profile = get_profile(request.user)
+    try:
+        data = json.loads(request.body)
+        amount = data.get('amount')
+        if not amount or float(amount) <= 0:
+            return JsonResponse({'success': False, 'error': 'Invalid amount.'})
+        
+        # Unique transaction ID: S{store_id}_{uuid}
+        store_id = profile.store.id if profile.store else 0
+        tx_id = f"S{store_id}_{uuid.uuid4().hex[:12].upper()}"
+        
+        pg = PhonePeGateway()
+        response = pg.initiate_payment(
+            transaction_id=tx_id,
+            user_id=request.user.id,
+            amount_in_rupees=amount
+        )
+        
+        if response.get('success'):
+            # Return transaction id and the data for QR (either direct intent or URL)
+            return JsonResponse({
+                'success': True,
+                'transaction_id': tx_id,
+                'data': response['data']
+            })
+        else:
+            return JsonResponse({
+                'success': False,
+                'error': response.get('message', 'Failed to initiate payment')
+            })
+            
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
+@login_required
+@require_profile
+def phonepe_status(request):
+    """
+    Checks the status of a specific PhonePe transaction.
+    """
+    tx_id = request.GET.get('transaction_id')
+    if not tx_id:
+        return JsonResponse({'success': False, 'error': 'Transaction ID missing.'})
+    
+    try:
+        pg = PhonePeGateway()
+        response = pg.check_status(tx_id)
+        
+        # PhonePe returns SUCCESS, FAILURE, PENDING
+        if response.get('success') and response.get('code') == 'PAYMENT_SUCCESS':
+            return JsonResponse({'success': True, 'status': 'SUCCESS'})
+        elif response.get('code') == 'PAYMENT_PENDING':
+            return JsonResponse({'success': True, 'status': 'PENDING'})
+        else:
+            return JsonResponse({'success': True, 'status': 'FAILED', 'message': response.get('message')})
+            
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)})
+
 
 @require_POST
 @login_required
@@ -609,13 +819,19 @@ def save_bill(request):
         for it in items_data:
             product = get_object_or_404(Product, id=it['product_id'], store=store)
             qty = validated_decimal(it['quantity'], 0.001, 99999)
+
+            # Enforce role-based price control
+            can_manage_prices = profile.is_superadmin or profile.role in ('AREAMANAGER', 'WHOLESALE_EXEC')
             
-            # CRITICAL FIX: Do not trust client's selling price, fetch from DB
-            if bill_type == 'WHOLESALE':
+            # Use the price sent from the billing UI only if authorized
+            client_price = it.get('selling_price')
+            if client_price is not None and can_manage_prices:
+                sp = validated_decimal(client_price, 0, 9999999)
+            elif bill_type == 'WHOLESALE':
                 sp = product.wholesale_price
             else:
                 sp = product.retail_price
-                
+
             if product.stock_quantity < qty:
                 return JsonResponse({'success': False,
                     'error': f'Insufficient stock for {product.name}. Available: {product.stock_quantity} kg'})
@@ -630,9 +846,10 @@ def save_bill(request):
         
         wc = None
         if bill_type == 'WHOLESALE':
-            sale.customer_name  = cname
-            sale.customer_phone = cphone
-            sale.customer_gst   = data.get('customer_gst', '').strip()
+            sale.customer_name    = cname
+            sale.customer_phone   = cphone
+            sale.customer_gst     = data.get('customer_gst', '').strip()
+            sale.customer_address = data.get('customer_address', '').strip()
 
             from .models import WholesaleCustomer, CreditRecord
             if cname:
@@ -641,6 +858,7 @@ def save_bill(request):
                     if not wc:
                         wc = WholesaleCustomer.objects.create(
                             name=cname, phone=sale.customer_phone, gst=sale.customer_gst,
+                            address=sale.customer_address,
                             is_credit_enabled=True, credit_duration_days=7, created_by=request.user
                         )
                     else:
@@ -689,8 +907,21 @@ def save_bill(request):
                 quantity=qty, cost_price=cp, selling_price=sp,
                 total_amount=qty*sp, total_cost=qty*cp, profit=qty*(sp-cp)
             )
+            
+            old_qty = product.stock_quantity
             product.stock_quantity -= qty
             product.save(update_fields=['stock_quantity'])
+            
+            # ── Low Stock Trigger ──
+            if old_qty > product.low_stock_alert and product.stock_quantity <= product.low_stock_alert:
+                notify_area_managers(
+                    store=store,
+                    title="⚠️ Low Stock Alert",
+                    message=f"Product '{product.name}' has reached low stock ({product.stock_quantity} kg remaining) at {store.name}.",
+                    level='WARNING',
+                    link='/inventory/'
+                )
+
             StockLog.objects.create(
                 store=store, product=product, movement='OUT',
                 quantity=qty, balance=product.stock_quantity,
@@ -704,23 +935,14 @@ def save_bill(request):
             for p, q, sp in validated
         )
         wa_msg = (
-            f"🌊 *Ocean Waves Sea Foods*\n"
-            f"📍 {store.name}\n"
-            f"──────────────────────\n"
-            f"🧾 Bill No: *{sale.bill_number}*\n"
-            f"📅 Date: {sale.created_at.strftime('%d/%m/%Y %I:%M %p')}\n"
-            f"💳 Payment: {sale.get_payment_mode_display()}\n"
-            f"──────────────────────\n"
-            f"{items_summary}\n"
-            f"──────────────────────\n"
+            f"🌊 *OCEANWAVES SEA FOODS*\n"
+            f"_{store.name} — Retail Bill_\n\n"
+            f"Bill No: *{sale.bill_number}*\n"
+            f"Total: *Rs.{sale.grand_total}*\n"
+            f"Mode: {sale.get_payment_mode_display()}\n\n"
+            f"OCEANWAVES SEA FOODS is part of OCEANWAVES VICTUALS PRIVATE LIMITED.\n"
+            f"Thank you!"
         )
-        if sale.discount > 0:
-            wa_msg += f"🏷️ Discount: -₹{sale.discount:.2f}\n"
-        if bill_type == 'WHOLESALE' and sale.total_gst > 0:
-            wa_msg += f"🏛️ GST ({sale.gst_rate}%): ₹{sale.total_gst:.2f}\n"
-        wa_msg += f"💰 *TOTAL: ₹{sale.grand_total:.2f}*\n"
-        wa_msg += f"──────────────────────\n"
-        wa_msg += f"✨ Thank you for shopping with us!\nFresh Seafood Every Day 🐟"
         
         # Build whatsapp URL — send to customer if they gave their number,
         # otherwise fall back to the store's own WhatsApp number
@@ -763,10 +985,33 @@ def bill_print(request, bill_id):
 def inventory(request):
     profile  = get_profile(request.user)
     store    = profile.store
+    managed_stores = None
+
+    # Area Managers have no direct store; they manage stores via AreaManagerStore
+    if profile.is_area_manager and not store:
+        managed_stores = AreaManagerStore.objects.filter(
+            manager=profile
+        ).select_related('store').order_by('store__name')
+
+        store_id = request.GET.get('store_id')
+        if store_id:
+            ams_entry = managed_stores.filter(store_id=store_id).first()
+            if ams_entry:
+                store = ams_entry.store
+        if not store and managed_stores.exists():
+            store = managed_stores.first().store
+
     if not store:
+        messages.error(request, 'Not assigned to any store.')
         return redirect('dashboard')
+
     products = Product.objects.filter(store=store, is_active=True)
-    return render(request, 'pos/inventory.html', {'products': products, 'store': store, 'profile': profile})
+    return render(request, 'pos/inventory.html', {
+        'products':       products,
+        'store':          store,
+        'profile':        profile,
+        'managed_stores': managed_stores,
+    })
 
 
 @login_required
@@ -774,72 +1019,134 @@ def inventory(request):
 def product_add(request):
     profile = get_profile(request.user)
     store   = profile.store
+
+    # Area Managers: resolve store from POST data or AreaManagerStore
+    if profile.is_area_manager and not store:
+        store_id = request.POST.get('store_id') or request.GET.get('store_id')
+        if store_id:
+            ams = AreaManagerStore.objects.filter(manager=profile, store_id=store_id).first()
+            if ams:
+                store = ams.store
+        if not store:
+            first = AreaManagerStore.objects.filter(manager=profile).select_related('store').first()
+            if first:
+                store = first.store
+
     if not store:
-        return redirect('dashboard')
+        messages.error(request, 'Not assigned to a store.')
+        return redirect('employee_list')
+
+    can_manage_prices = profile.is_superadmin or profile.role in ('AREAMANAGER', 'WHOLESALE_EXEC')
+
     if request.method == 'POST':
         p = Product(
             store=store,
             name=request.POST['name'].strip(),
             category=request.POST.get('category', 'FISH'),
             barcode=request.POST.get('barcode', '').strip(),
-            cost_price=request.POST['cost_price'],
-            retail_price=request.POST['retail_price'],
-            wholesale_price=request.POST['wholesale_price'],
+            cost_price=request.POST.get('cost_price', 0) if can_manage_prices else 0,
+            retail_price=request.POST.get('retail_price', 0) if can_manage_prices else 0,
+            wholesale_price=request.POST.get('wholesale_price', 0) if can_manage_prices else 0,
             stock_quantity=request.POST.get('stock_quantity', 0),
             low_stock_alert=request.POST.get('low_stock_alert', 5),
         )
         p.save()
+
+        if not can_manage_prices:
+            messages.warning(request, "Product added, but prices must be set by an Area Manager or Admin.")
+
         if float(p.stock_quantity) > 0:
             StockLog.objects.create(store=store, product=p, movement='IN',
                 quantity=p.stock_quantity, balance=p.stock_quantity,
                 reference='Initial stock', created_by=request.user)
-        messages.success(request, f'Product "{p.name}" added.')
-    return redirect('inventory')
+        messages.success(request, f'Product "{p.name}" added successfully.')
+    return redirect(f'/inventory/?store_id={store.id}' if profile.is_area_manager else 'inventory')
 
 
 @login_required
 @require_profile
 def product_edit(request, pid):
     profile = get_profile(request.user)
-    p = get_object_or_404(Product, id=pid, store=profile.store)
+
+    # Area Managers may not have profile.store — verify via AreaManagerStore
+    if profile.is_area_manager and not profile.store:
+        p = get_object_or_404(Product, id=pid)
+        has_access = AreaManagerStore.objects.filter(
+            manager=profile, store=p.store
+        ).exists()
+        if not has_access:
+            messages.error(request, 'Access denied: you do not manage this store.')
+            return redirect('inventory')
+    else:
+        p = get_object_or_404(Product, id=pid, store=profile.store)
+
+    can_manage_prices = profile.is_superadmin or profile.role in ('AREAMANAGER', 'WHOLESALE_EXEC')
+
     if request.method == 'POST':
-        p.name            = request.POST.get('name', p.name).strip()
-        p.category        = request.POST.get('category', p.category)
-        p.cost_price      = request.POST.get('cost_price', p.cost_price)
-        p.retail_price    = request.POST.get('retail_price', p.retail_price)
-        p.wholesale_price = request.POST.get('wholesale_price', p.wholesale_price)
+        p.name     = request.POST.get('name', p.name).strip()
+        p.category = request.POST.get('category', p.category)
+
+        if can_manage_prices:
+            p.cost_price      = request.POST.get('cost_price', p.cost_price)
+            p.retail_price    = request.POST.get('retail_price', p.retail_price)
+            p.wholesale_price = request.POST.get('wholesale_price', p.wholesale_price)
+
         p.low_stock_alert = request.POST.get('low_stock_alert', p.low_stock_alert)
         p.save()
         messages.success(request, f'"{p.name}" updated.')
-    return redirect('inventory')
+    return redirect(f'/inventory/?store_id={p.store_id}' if profile.is_area_manager else 'inventory')
 
 
 @login_required
 @require_profile
 def product_restock(request, pid):
     profile = get_profile(request.user)
-    p = get_object_or_404(Product, id=pid, store=profile.store)
+
+    if profile.is_area_manager and not profile.store:
+        p = get_object_or_404(Product, id=pid)
+        has_access = AreaManagerStore.objects.filter(
+            manager=profile, store=p.store
+        ).exists()
+        if not has_access:
+            messages.error(request, 'Access denied.')
+            return redirect('inventory')
+    else:
+        p = get_object_or_404(Product, id=pid, store=profile.store)
+
+    store = p.store
     if request.method == 'POST':
         qty = decimal.Decimal(request.POST.get('add_quantity', 0))
         p.stock_quantity += qty
         p.save(update_fields=['stock_quantity'])
-        StockLog.objects.create(store=profile.store, product=p, movement='IN',
+        StockLog.objects.create(store=store, product=p, movement='IN',
             quantity=qty, balance=p.stock_quantity,
             reference=request.POST.get('note', 'Restock'),
             created_by=request.user)
         messages.success(request, f'Added {qty} kg to {p.name}. New stock: {p.stock_quantity} kg')
-    return redirect('inventory')
+    return redirect(f'/inventory/?store_id={store.id}' if profile.is_area_manager else 'inventory')
 
 
 @login_required
 @require_profile
 def product_delete(request, pid):
     profile = get_profile(request.user)
-    p = get_object_or_404(Product, id=pid, store=profile.store)
+
+    if profile.is_area_manager and not profile.store:
+        p = get_object_or_404(Product, id=pid)
+        has_access = AreaManagerStore.objects.filter(
+            manager=profile, store=p.store
+        ).exists()
+        if not has_access:
+            messages.error(request, 'Access denied.')
+            return redirect('inventory')
+    else:
+        p = get_object_or_404(Product, id=pid, store=profile.store)
+
+    store_id = p.store_id
     p.is_active = False
     p.save()
     messages.success(request, f'"{p.name}" removed.')
-    return redirect('inventory')
+    return redirect(f'/inventory/?store_id={store_id}' if profile.is_area_manager else 'inventory')
 
 
 @login_required
@@ -952,13 +1259,18 @@ def export_excel(request):
     bdr       = Border(left=thin, right=thin, top=thin, bottom=thin)
 
     ws.merge_cells('A1:J1')
-    ws['A1'] = 'Ocean Waves Sea Foods — Sales Report'
+    ws['A1'] = 'OCEANWAVES SEA FOODS — Sales Report'
     ws['A1'].font = Font(bold=True, size=14, color='0077B6')
     ws['A1'].alignment = Alignment(horizontal='center')
     ws.merge_cells('A2:J2')
     ws['A2'] = f'Date: {report_date.strftime("%d %B %Y")}'
     ws['A2'].alignment = Alignment(horizontal='center')
     ws['A2'].font = Font(italic=True)
+    
+    ws.merge_cells('A3:J3')
+    ws['A3'] = 'OCEANWAVES SEA FOODS is part of OCEANWAVES VICTUALS PRIVATE LIMITED.'
+    ws['A3'].alignment = Alignment(horizontal='center')
+    ws['A3'].font = Font(size=9, italic=True)
 
     headers = ['Store', 'Bill No', 'Bill Type', 'Product', 'Qty (kg)', 'Mode',
                'CP/kg (₹)', 'SP/kg (₹)', 'Total (₹)', 'Profit (₹)']
@@ -1011,7 +1323,14 @@ def expense_add(request):
     if not profile.is_owner:
         messages.error(request, 'Access denied.')
         return redirect('dashboard')
+        
     store = profile.store
+    if profile.is_superadmin:
+        store_id = request.POST.get('store_id')
+        if not store_id:
+            messages.error(request, 'Store selection is required for Super Admin.')
+            return redirect('expenses_page')
+        store = get_object_or_404(Store, id=store_id)
     
     exp = Expense(
         store=store,
@@ -1071,18 +1390,33 @@ def expenses_page(request):
     if not profile.is_owner:
         messages.error(request, 'Access denied.')
         return redirect('dashboard')
-    store = profile.store
+        
+    all_stores = None
+    store_filter = request.GET.get('store_filter')
+
+    if profile.is_superadmin:
+        all_stores = Store.objects.filter(is_active=True).order_by('name')
+        if store_filter and store_filter.isdigit():
+            expenses = Expense.objects.filter(store_id=store_filter)
+        else:
+            expenses = Expense.objects.all()
+    else:
+        expenses = Expense.objects.filter(store=profile.store)
+
     report_date_str = request.GET.get('date', '')
     try:
         report_date = date.fromisoformat(report_date_str) if report_date_str else date.today()
     except ValueError:
         report_date = date.today()
-    expenses     = Expense.objects.filter(store=store)
+        
     total        = expenses.aggregate(t=Sum('amount'))['t'] or 0
     day_expenses = expenses.filter(date=report_date)
     day_total    = day_expenses.aggregate(t=Sum('amount'))['t'] or 0
+    
     return render(request, 'pos/expenses.html', {
-        'profile':     profile, 'store': store,
+        'profile':     profile, 
+        'all_stores':  all_stores,
+        'store_filter': store_filter,
         'expenses':    expenses.order_by('-date', '-created_at')[:100],
         'day_expenses': day_expenses,
         'report_date': report_date,
@@ -1098,16 +1432,45 @@ def expenses_page(request):
 @require_profile
 def employee_list(request):
     profile = get_profile(request.user)
-    if not profile.is_owner:
+    if not (profile.is_owner or profile.is_superadmin):
         messages.error(request, 'Access denied.')
         return redirect('dashboard')
-    store     = profile.store
-    employees = Employee.objects.filter(store=store).order_by('is_active', 'full_name')
-    total_payroll = Employee.objects.filter(store=store, is_active=True).aggregate(
-        t=Sum('basic_salary'))['t'] or 0
+
+    all_stores = None
+    store      = None
+    store_id   = None
+    if profile.is_superadmin:
+        all_stores = Store.objects.filter(is_active=True).order_by('name')
+        store_id   = request.GET.get('store_id')
+        if store_id and store_id.isdigit():
+            store = get_object_or_404(Store, id=store_id)
+    else:
+        store = profile.store
+
+    if store:
+        employees = Employee.objects.filter(store=store).order_by('is_active', 'full_name')
+    elif profile.is_superadmin:
+        if store_id == 'none':
+            employees = Employee.objects.filter(store__isnull=True).order_by('is_active', 'full_name')
+        else:
+            # All stores view
+            employees = Employee.objects.all().order_by('store__name', 'is_active', 'full_name')
+    else:
+        employees = Employee.objects.none()
+
+    active_count   = employees.filter(is_active=True).count()
+    inactive_count = employees.filter(is_active=False).count()
+    total_payroll  = employees.filter(is_active=True).aggregate(t=Sum('basic_salary'))['t'] or 0
+
     return render(request, 'pos/employees.html', {
-        'profile': profile, 'store': store,
-        'employees': employees, 'total_payroll': total_payroll,
+        'profile'       : profile,
+        'store'         : store,
+        'all_stores'    : all_stores,
+        'selected_store_id': store_id,
+        'employees'     : employees,
+        'total_payroll' : total_payroll,
+        'active_count'  : active_count,
+        'inactive_count': inactive_count,
     })
 
 
@@ -1115,9 +1478,21 @@ def employee_list(request):
 @require_profile
 def employee_add(request):
     profile = get_profile(request.user)
-    if not profile.is_owner:
+    if not (profile.is_owner or profile.is_superadmin):
+        messages.error(request, 'Access denied.')
         return redirect('dashboard')
-    store = profile.store
+
+    # Superadmin can specify a store via POST; owner always uses their own store
+    if profile.is_superadmin:
+        store_id = request.POST.get('store_id') or request.GET.get('store_id')
+        store = get_object_or_404(Store, id=store_id) if store_id else Store.objects.filter(is_active=True).first()
+    else:
+        store = profile.store
+
+    if not store:
+        messages.error(request, 'No store found. Please specify a store.')
+        return redirect('employee_list')
+
     if request.method == 'POST':
         last   = Employee.objects.filter(store=store).order_by('-id').first()
         num    = (last.id + 1) if last else 1
@@ -1130,10 +1505,10 @@ def employee_add(request):
             designation=request.POST.get('designation', '').strip(),
             employment_type=request.POST.get('employment_type', 'FULLTIME'),
             pay_cycle=request.POST.get('pay_cycle', 'MONTHLY'),
-            basic_salary=request.POST.get('basic_salary', 0),
-            allowances=request.POST.get('allowances', 0),
-            deductions=request.POST.get('deductions', 0),
-            date_joined=request.POST.get('date_joined', date.today()),
+            basic_salary=request.POST.get('basic_salary', 0) or 0,
+            allowances=request.POST.get('allowances', 0) or 0,
+            deductions=request.POST.get('deductions', 0) or 0,
+            date_joined=request.POST.get('date_joined', date.today()) or date.today(),
             notes=request.POST.get('notes', '').strip(),
             created_by=request.user,
         )
@@ -1145,9 +1520,12 @@ def employee_add(request):
 @require_profile
 def employee_edit(request, emp_id):
     profile = get_profile(request.user)
-    if not profile.is_owner:
+    if not (profile.is_owner or profile.is_superadmin):
         return redirect('dashboard')
-    emp = get_object_or_404(Employee, id=emp_id, store=profile.store)
+    emp = get_object_or_404(Employee, id=emp_id)
+    if profile.is_owner and not profile.is_superadmin and emp.store != profile.store:
+        messages.error(request, 'Access denied.')
+        return redirect('employee_list')
     if request.method == 'POST':
         emp.full_name       = request.POST.get('full_name', emp.full_name).strip()
         emp.phone           = request.POST.get('phone', emp.phone).strip()
@@ -1169,9 +1547,13 @@ def employee_edit(request, emp_id):
 @require_profile
 def employee_delete(request, emp_id):
     profile = get_profile(request.user)
-    if not profile.is_owner:
+    if not (profile.is_owner or profile.is_superadmin):
         return redirect('dashboard')
-    emp = get_object_or_404(Employee, id=emp_id, store=profile.store)
+    emp = get_object_or_404(Employee, id=emp_id)
+    # Owners can only deactivate their own store's employees; superadmin can deactivate any
+    if profile.is_owner and not profile.is_superadmin and emp.store != profile.store:
+        messages.error(request, 'Access denied.')
+        return redirect('employee_list')
     emp.is_active = False
     emp.save()
     messages.success(request, f'"{emp.full_name}" deactivated.')
@@ -1180,15 +1562,38 @@ def employee_delete(request, emp_id):
 
 @login_required
 @require_profile
+def employee_hard_delete(request, emp_id):
+    """Permanently delete an inactive employee record."""
+    profile = get_profile(request.user)
+    if not (profile.is_owner or profile.is_superadmin):
+        return redirect('dashboard')
+    emp = get_object_or_404(Employee, id=emp_id)
+    if profile.is_owner and not profile.is_superadmin and emp.store != profile.store:
+        messages.error(request, 'Access denied.')
+        return redirect('employee_list')
+    if emp.is_active:
+        messages.error(request, 'Cannot permanently delete an active employee. Deactivate first.')
+        return redirect('employee_list')
+    name = emp.full_name
+    emp.delete()
+    messages.success(request, f'Employee "{name}" permanently deleted.')
+    return redirect('employee_list')
+
+
+@login_required
+@require_profile
 def employee_detail(request, emp_id):
     profile  = get_profile(request.user)
-    if not profile.is_owner:
+    if not (profile.is_owner or profile.is_superadmin):
         return redirect('dashboard')
-    emp      = get_object_or_404(Employee, id=emp_id, store=profile.store)
+    emp = get_object_or_404(Employee, id=emp_id)
+    if profile.is_owner and not profile.is_superadmin and emp.store != profile.store:
+        messages.error(request, 'Access denied.')
+        return redirect('employee_list')
     payslips = PaySlip.objects.filter(employee=emp).order_by('-year', '-month')
     return render(request, 'pos/employee_detail.html', {
         'profile': profile, 'emp': emp,
-        'payslips': payslips, 'store': profile.store,
+        'payslips': payslips, 'store': emp.store,
     })
 
 
@@ -1198,20 +1603,29 @@ def payslip_generate(request, emp_id):
     profile = get_profile(request.user)
     if not profile.is_owner:
         return redirect('dashboard')
-    emp = get_object_or_404(Employee, id=emp_id, store=profile.store)
+    # Superadmin has no store; look up by id only, then verify ownership for regular owners
+    if profile.is_superadmin:
+        emp = get_object_or_404(Employee, id=emp_id)
+    else:
+        emp = get_object_or_404(Employee, id=emp_id, store=profile.store)
     if request.method == 'POST':
         month = int(request.POST.get('month'))
         year  = int(request.POST.get('year'))
         if PaySlip.objects.filter(employee=emp, month=month, year=year).exists():
             messages.error(request, 'Payslip for this month already exists.')
         else:
+            def to_dec(val, fallback=0):
+                try:
+                    return decimal.Decimal(str(val)).quantize(decimal.Decimal('0.01'))
+                except Exception:
+                    return decimal.Decimal(str(fallback)).quantize(decimal.Decimal('0.01'))
             PaySlip.objects.create(
-                employee=emp, store=profile.store,
+                employee=emp, store=emp.store,
                 month=month, year=year,
-                basic_salary=request.POST.get('basic_salary', emp.basic_salary),
-                allowances=request.POST.get('allowances', emp.allowances),
-                deductions=request.POST.get('deductions', emp.deductions),
-                bonus=request.POST.get('bonus', 0),
+                basic_salary=to_dec(request.POST.get('basic_salary'), emp.basic_salary),
+                allowances=to_dec(request.POST.get('allowances'),     emp.allowances),
+                deductions=to_dec(request.POST.get('deductions'),     emp.deductions),
+                bonus=to_dec(request.POST.get('bonus'), 0),
                 status=request.POST.get('status', 'PENDING'),
                 payment_date=request.POST.get('payment_date') or None,
                 payment_mode=request.POST.get('payment_mode', '').strip(),
@@ -1228,7 +1642,7 @@ def payslip_mark_paid(request, slip_id):
     profile = get_profile(request.user)
     if not profile.is_owner:
         return redirect('dashboard')
-    slip = get_object_or_404(PaySlip, id=slip_id, store=profile.store)
+    slip = get_object_or_404(PaySlip, id=slip_id) if profile.is_superadmin else get_object_or_404(PaySlip, id=slip_id, store=profile.store)
     slip.status       = 'PAID'
     slip.payment_date = date.today()
     slip.payment_mode = request.POST.get('payment_mode', 'CASH')
@@ -1243,7 +1657,7 @@ def payslip_delete(request, slip_id):
     profile = get_profile(request.user)
     if not profile.is_owner:
         return redirect('dashboard')
-    slip   = get_object_or_404(PaySlip, id=slip_id, store=profile.store)
+    slip   = get_object_or_404(PaySlip, id=slip_id) if profile.is_superadmin else get_object_or_404(PaySlip, id=slip_id, store=profile.store)
     emp_id = slip.employee.id
     slip.delete()
     messages.success(request, 'Payslip deleted.')
@@ -1254,7 +1668,7 @@ def payslip_delete(request, slip_id):
 @require_profile
 def payslip_print(request, slip_id):
     profile = get_profile(request.user)
-    slip    = get_object_or_404(PaySlip, id=slip_id, store=profile.store)
+    slip    = get_object_or_404(PaySlip, id=slip_id) if profile.is_superadmin else get_object_or_404(PaySlip, id=slip_id, store=profile.store)
     return render(request, 'pos/payslip_print.html', {'slip': slip})
 
 
@@ -1449,20 +1863,39 @@ def wholesale_request_otp(request):
         })
         cache.set(am_dashboard_key, existing, timeout=300)
 
-        subject = f"Wholesale Billing OTP - {store.name}"
-        message = f"Hello {am.user.first_name},\n\nA wholesale bill is pending approval at {store.name}.\nYour OTP is: {otp}\n\nValid for 5 minutes."
-        
-        # Dispatch SMTP via thread as a backup
+        requestor_name = request.user.get_full_name() or request.user.username
+        store_info = store.name
+        if store.address:
+            store_info += f", {store.address}"
+        if store.phone:
+            store_info += f" | Ph: {store.phone}"
+
+        subject = f"[ACTION REQUIRED] Wholesale Approval OTP — {store.name}"
+        message = (
+            f"Hello {am.user.first_name or am.user.username},\n\n"
+            f"A wholesale bill is awaiting your approval.\n\n"
+            f"{'─' * 40}\n"
+            f"  Store     : {store.name}\n"
+            f"  Address   : {store.address or 'N/A'}\n"
+            f"  Requested by: {requestor_name}\n"
+            f"  Time      : {datetime.datetime.now().strftime('%d %b %Y, %I:%M %p')}\n"
+            f"{'─' * 40}\n\n"
+            f"Your OTP: {otp}\n\n"
+            f"This OTP is valid for 5 minutes.\n"
+            f"Do NOT share this OTP with anyone.\n\n"
+            f"— OCEANWAVES POS System\n"
+        )
+
         import threading
+        from django.core.mail import send_mail
         def send_otp_email(sub, msg, frm, to):
             try:
                 send_mail(sub, msg, frm, [to], fail_silently=False)
             except Exception:
                 pass
-                
-        threading.Thread(target=send_otp_email, args=(subject, message, settings.DEFAULT_FROM_EMAIL, email)).start()
-        
-        return JsonResponse({'success': True, 'msg': f'OTP dispatched & visible on Manager Dashboard'})
+        threading.Thread(target=send_otp_email, args=(subject, message, settings.DEFAULT_FROM_EMAIL, email), daemon=True).start()
+
+        return JsonResponse({'success': True, 'msg': f'OTP sent to Manager & visible on Manager Dashboard'})
             
     except Exception as e:
         return JsonResponse({'success': False, 'error': str(e)})
@@ -1545,9 +1978,10 @@ def wholesale_verify_otp(request):
             gst_rate=gst_rate, discount=discount, created_by=request.user
         )
         cname = data.get('customer_name',  '').strip()
-        sale.customer_name  = cname
-        sale.customer_phone = data.get('customer_phone', '').strip()
-        sale.customer_gst   = data.get('customer_gst',   '').strip()
+        sale.customer_name    = cname
+        sale.customer_phone   = data.get('customer_phone',   '').strip()
+        sale.customer_gst     = data.get('customer_gst',     '').strip()
+        sale.customer_address = data.get('customer_address', '').strip()
 
         wc = None
         from .models import WholesaleCustomer, CreditRecord
@@ -1557,6 +1991,7 @@ def wholesale_verify_otp(request):
                 if not wc:
                     wc = WholesaleCustomer.objects.create(
                         name=cname, phone=sale.customer_phone, gst=sale.customer_gst,
+                        address=sale.customer_address,
                         is_credit_enabled=True, credit_duration_days=7, created_by=request.user
                     )
                 else:
@@ -1629,7 +2064,7 @@ def wholesale_verify_otp(request):
             for v in validated
         )
         wa_msg = (
-            f"\U0001f30a *Ocean Waves Sea Foods*\n"
+            f"\U0001f30a *OCEANWAVES SEA FOODS*\n"
             f"\U0001f4cd {store.name}\n"
             f"\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n"
             f"\U0001f9fe Bill No: *{sale.bill_number}*\n"
@@ -1698,6 +2133,44 @@ def set_manager_pin(request):
         return JsonResponse({'success': False, 'error': str(e)})
 
 
+# ── Area Manager Dashboard ───────────────────────────────────────────────────
+@login_required
+@require_profile
+def am_dashboard(request):
+    """Personal dashboard for Area Managers — shows their approval history and pending OTPs."""
+    profile = get_profile(request.user)
+    if not profile.is_area_manager:
+        messages.error(request, 'Access denied. Area Manager role required.')
+        return redirect('dashboard')
+
+    # Approval history queryset (unsliced for counts)
+    approvals_qs = WholesaleApproval.objects.select_related(
+        'store', 'sale', 'created_by'
+    ).filter(area_manager=profile).order_by('-created_at')
+
+    # Stats — must be computed BEFORE slicing
+    total_approved = approvals_qs.count()
+    today_approved = approvals_qs.filter(created_at__date=timezone.now().date()).count()
+    stores_managed = profile.managed_stores.select_related('store').count()
+
+    # Pending OTPs still in cache
+    from django.core.cache import cache
+    pending_otps = cache.get(f'am_dashboard_otps_{profile.id}', [])
+
+    # Now slice for display
+    approvals = approvals_qs[:100]
+
+    return render(request, 'pos/am_dashboard.html', {
+        'profile':       profile,
+        'approvals':     approvals,
+        'pending_otps':  pending_otps,
+        'total_approved': total_approved,
+        'today_approved': today_approved,
+        'stores_managed': stores_managed,
+        'unread_notifications': Notification.objects.filter(user=request.user, is_read=False).order_by('-created_at')[:10]
+    })
+
+
 # ── Approval history view ────────────────────────────────────────────────────
 @login_required
 @require_profile
@@ -1731,8 +2204,31 @@ from .models import WholesaleCustomer, CreditRecord
 @require_profile
 def wholesale_customers(request):
     profile = get_profile(request.user)
-    customers = WholesaleCustomer.objects.all().order_by('-created_at')
-    return render(request, 'pos/wholesale_customers.html', {'customers': customers, 'profile': profile})
+    from .models import Store, AreaManagerStore
+    
+    # Get accessible stores
+    stores = Store.objects.filter(is_active=True).order_by('name')
+    if not profile.is_superadmin:
+        if profile.is_area_manager or profile.is_wholesale_exec:
+            stores = Store.objects.filter(id__in=AreaManagerStore.objects.filter(manager=profile).values_list('store_id', flat=True)).order_by('name')
+        elif profile.store:
+            stores = stores.filter(id=profile.store.id)
+        else:
+            stores = Store.objects.none()
+
+    customers = WholesaleCustomer.objects.all()
+    
+    store_filter = request.GET.get('store_filter')
+    if store_filter and store_filter.isdigit():
+        customers = customers.filter(sales__store_id=store_filter).distinct()
+        
+    customers = customers.order_by('-created_at')
+    return render(request, 'pos/wholesale_customers.html', {
+        'customers': customers, 
+        'profile': profile,
+        'stores': stores,
+        'store_filter': store_filter
+    })
 
 @login_required
 @require_profile
@@ -1783,12 +2279,37 @@ def wholesale_customer_edit(request, cid):
 @require_profile
 def credits_list(request):
     profile = get_profile(request.user)
+    from .models import Store, AreaManagerStore
     records = CreditRecord.objects.select_related('customer', 'sale', 'sale__store').order_by('is_paid', 'due_date')
     
-    if profile.store and not profile.is_wholesale_exec and not profile.is_area_manager and not profile.is_superadmin:
+    stores = Store.objects.filter(is_active=True).order_by('name')
+    
+    if profile.is_superadmin:
+        pass
+    elif profile.is_area_manager or profile.is_wholesale_exec:
+        accessible_store_ids = AreaManagerStore.objects.filter(manager=profile).values_list('store_id', flat=True)
+        stores = Store.objects.filter(id__in=accessible_store_ids).order_by('name')
+        records = records.filter(Q(sale__store_id__in=accessible_store_ids) | Q(is_external=True))
+    elif profile.store:
+        stores = stores.filter(id=profile.store.id)
         records = records.filter(Q(sale__store=profile.store) | Q(is_external=True))
+    else:
+        stores = Store.objects.none()
+        records = records.none()
 
-    return render(request, 'pos/credits.html', {'records': records, 'profile': profile})
+    store_filter = request.GET.get('store_filter')
+    if store_filter:
+        if store_filter.isdigit():
+            records = records.filter(sale__store_id=store_filter)
+        elif store_filter == 'external':
+            records = records.filter(is_external=True)
+
+    return render(request, 'pos/credits.html', {
+        'records': records, 
+        'profile': profile, 
+        'stores': stores,
+        'store_filter': store_filter
+    })
 
 @login_required
 @require_profile
@@ -1858,3 +2379,218 @@ def credit_pay(request, cid):
     messages.success(request, f'Credit for {record.customer.name} marked as paid.')
         
     return redirect('credits_list')
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  SESSION MANAGEMENT & ALERTS
+# ─────────────────────────────────────────────────────────────────────────────
+from django.conf import settings
+from .models import StoreSession, DailyStockSnapshot
+
+@login_required
+@require_profile
+@require_POST
+def toggle_store_session(request):
+    profile = get_profile(request.user)
+    if not profile.store:
+        messages.error(request, 'Not assigned to a store.')
+        return redirect('dashboard')
+        
+    store = profile.store
+    action = request.POST.get('action')
+    today = timezone.now().date()
+    
+    if action == 'open':
+        session, created = StoreSession.objects.get_or_create(
+            store=store, date=today,
+            defaults={'opened_at': timezone.now(), 'opened_by': request.user}
+        )
+        if not created and not session.opened_at:
+            session.opened_at = timezone.now()
+            session.opened_by = request.user
+            session.save()
+        messages.success(request, f'{store.name} opened successfully.')
+        
+    elif action == 'close':
+        session = StoreSession.objects.filter(store=store, date=today).first()
+        if session and session.opened_at and not session.closed_at:
+            session.closed_at = timezone.now()
+            session.closed_by = request.user
+            session.save()
+            
+            # --- Auto-calculate DailyStockSnapshot ---
+            for p in store.products.filter(is_active=True):
+                logs = StockLog.objects.filter(store=store, product=p, created_at__date=today)
+                purchased = logs.filter(movement='IN').aggregate(t=Sum('quantity'))['t'] or 0
+                sold      = logs.filter(movement='OUT').aggregate(t=Sum('quantity'))['t'] or 0
+                
+                yesterday_snap = DailyStockSnapshot.objects.filter(store=store, product=p, date__lt=today).order_by('-date').first()
+                opening = yesterday_snap.closing_qty if yesterday_snap else (p.stock_quantity + sold - purchased)
+                
+                DailyStockSnapshot.objects.update_or_create(
+                    store=store, product=p, date=today,
+                    defaults={
+                        'opening_qty': opening,
+                        'purchased_qty': purchased,
+                        'sold_qty': sold,
+                        'closing_qty': p.stock_quantity
+                    }
+                )
+
+            # TODO: re-add store-close admin email alert with better logic
+            messages.success(request, f'{store.name} closed successfully.')
+        else:
+            messages.error(request, 'Store is not currently open.')
+            
+    return redirect('dashboard')
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  STOCK REQUESTS & NOTIFICATIONS
+# ─────────────────────────────────────────────────────────────────────────────
+
+@login_required
+@require_profile
+def stock_request_create(request):
+    """Allows Store Owners to request stock for a product."""
+    profile = get_profile(request.user)
+    if request.method == 'POST':
+        pid = request.POST.get('product_id')
+        qty = decimal.Decimal(request.POST.get('requested_qty', 0))
+        notes = request.POST.get('notes', '')
+        
+        product = get_object_or_404(Product, id=pid, store=profile.store)
+        
+        req = StockRequest.objects.create(
+            store=profile.store,
+            product=product,
+            requested_qty=qty,
+            requested_by=request.user,
+            notes=notes
+        )
+        
+        # Notify Area Managers
+        notify_area_managers(
+            store=profile.store,
+            title="New Stock Request",
+            message=f"{profile.store.name} requested {qty}kg of {product.name}.",
+            level='INFO',
+            link='/stock-requests/'
+        )
+        
+        messages.success(request, f"Stock request for {product.name} submitted.")
+    return redirect('inventory')
+
+
+@login_required
+@require_profile
+def stock_request_list(request):
+    """Lists stock requests based on the user's role."""
+    profile = get_profile(request.user)
+    if profile.is_superadmin:
+        requests = StockRequest.objects.all()
+    elif profile.role in ('AREAMANAGER', 'WHOLESALE_EXEC'):
+        managed_store_ids = AreaManagerStore.objects.filter(manager__user=request.user).values_list('store_id', flat=True)
+        requests = StockRequest.objects.filter(store_id__in=managed_store_ids)
+    else:
+        requests = StockRequest.objects.filter(store=profile.store)
+    
+    # Also get pending products for the 'Choose Product' modal if needed
+    products = Product.objects.filter(store=profile.store, is_active=True)
+    
+    return render(request, 'pos/stock_requests.html', {
+        'requests': requests,
+        'profile': profile,
+        'products': products
+    })
+
+
+@login_required
+@require_profile
+def stock_request_approve(request, rid):
+    """Area Manager approves and records the quantity sent."""
+    profile = get_profile(request.user)
+    if not (profile.is_superadmin or profile.role in ('AREAMANAGER', 'WHOLESALE_EXEC')):
+        messages.error(request, "Only Area Managers or Admins can approve stock requests.")
+        return redirect('stock_request_list')
+        
+    req = get_object_or_404(StockRequest, id=rid)
+    if request.method == 'POST':
+        sent_qty = decimal.Decimal(request.POST.get('sent_qty', req.requested_qty))
+        req.sent_qty = sent_qty
+        req.status = 'APPROVED'
+        req.approved_by = request.user
+        req.shipped_at = timezone.now()
+        req.save()
+        
+        # Notify Store Owner
+        create_notification(
+            user=req.requested_by,
+            title="Stock Shipped",
+            message=f"Request for {req.product.name} (Approved: {sent_qty}kg) has been shipped.",
+            level='SUCCESS',
+            link='/stock-requests/'
+        )
+        
+        messages.success(request, f"Request approved. Shipment recorded for {sent_qty}kg.")
+    return redirect('stock_request_list')
+
+
+@login_required
+@require_profile
+def stock_request_receive(request, rid):
+    """Store Owner records the quantity received and verifies against sent quantity."""
+    profile = get_profile(request.user)
+    req = get_object_or_404(StockRequest, id=rid, store=profile.store)
+    
+    if req.status != 'APPROVED':
+        messages.error(request, "This request is not in 'Approved & Shipped' status.")
+        return redirect('stock_request_list')
+        
+    if request.method == 'POST':
+        received_qty = decimal.Decimal(request.POST.get('received_qty', 0))
+        req.received_qty = received_qty
+        req.received_at = timezone.now()
+        
+        # Update actual stock inventory
+        product = req.product
+        product.stock_quantity += received_qty
+        product.save(update_fields=['stock_quantity'])
+        
+        StockLog.objects.create(
+            store=profile.store,
+            product=product,
+            movement='IN',
+            quantity=received_qty,
+            balance=product.stock_quantity,
+            reference=f"Stock Req #{req.id} Received",
+            created_by=request.user
+        )
+        
+        # Reconciliation Logic
+        if received_qty != req.sent_qty:
+            req.status = 'DISCREPANCY'
+            req.save()
+            # ALERT ADMIN & AM IMMEDIATELY
+            notify_area_managers(
+                store=profile.store,
+                title="⚠️ STOCK DISCREPANCY ALERT",
+                message=f"Discrepancy detected at {profile.store.name} for {product.name}. Sent: {req.sent_qty}kg, Received: {received_qty}kg.",
+                level='DANGER',
+                link='/stock-requests/',
+                include_admin=True
+            )
+            messages.warning(request, "Stock discrepancy detected! Admin and Area Manager have been notified.")
+        else:
+            req.status = 'RECEIVED'
+            req.save()
+            messages.success(request, f"Inventory updated successfully with {received_qty}kg.")
+            
+    return redirect('stock_request_list')
+
+
+@login_required
+@require_profile
+def mark_notifications_read(request):
+    """Utility API to mark all notifications as read for current user."""
+    Notification.objects.filter(user=request.user, is_read=False).update(is_read=True)
+    return JsonResponse({'status': 'ok'})

@@ -4,7 +4,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{% block title %}Ocean Waves POS{% endblock %}</title>
+<title>{% block title %}OCEANWAVES POS{% endblock %}</title>
 <link rel="stylesheet" href="{% static 'pos/css/style.css' %}">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 {% block extra_css %}{% endblock %}
@@ -17,7 +17,7 @@
   <div class="nav-brand">
     <img src="{% static 'pos/images/logo.jpg' %}" alt="Logo" class="nav-logo">
     <div class="nav-brand-text">
-      <span class="nav-title">Ocean Waves</span>
+      <span class="nav-title">OCEANWAVES</span>
       <span class="nav-sub">Sea Foods POS</span>
     </div>
   </div>
@@ -29,46 +29,67 @@
 
   <div class="nav-links">
     <a href="{% url 'dashboard' %}" class="nav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}">
-      <i class="fas fa-th-large"></i> Dashboard
+      <i class="fas fa-th-large"></i><span> Dashboard</span>
     </a>
 
     {% if profile.role != 'SUPERADMIN' %}
     <a href="{% url 'billing' %}" class="nav-link {% if 'billing' in request.resolver_match.url_name %}active{% endif %}">
-      <i class="fas fa-cash-register"></i> Billing
+      <i class="fas fa-cash-register"></i><span> Billing</span>
     </a>
     <a href="{% url 'inventory' %}" class="nav-link {% if 'inventory' in request.resolver_match.url_name or 'stock' in request.resolver_match.url_name %}active{% endif %}">
-      <i class="fas fa-boxes"></i> Inventory
+      <i class="fas fa-boxes"></i><span> Inventory</span>
     </a>
     {% endif %}
 
     {% if profile.role in 'OWNER,SUPERADMIN' or profile.is_owner %}
     <a href="{% url 'expenses_page' %}" class="nav-link {% if 'expense' in request.resolver_match.url_name %}active{% endif %}">
-      <i class="fas fa-minus-circle"></i> Expenses
+      <i class="fas fa-minus-circle"></i><span> Expenses</span>
     </a>
     <a href="{% url 'employee_list' %}" class="nav-link {% if 'employee' in request.resolver_match.url_name %}active{% endif %}">
-      <i class="fas fa-users"></i> Employees
+      <i class="fas fa-users"></i><span> Employees</span>
     </a>
-    <a href="{% url 'reports' %}" class="nav-link {% if 'report' in request.resolver_match.url_name %}active{% endif %}">
-      <i class="fas fa-chart-line"></i> Reports
+    <a href="{% url 'daily_report' %}" class="nav-link {% if 'report' in request.resolver_match.url_name %}active{% endif %}">
+      <i class="fas fa-chart-line"></i><span> Reports</span>
+    </a>
+    <a href="{% url 'ledger_view' %}" class="nav-link {% if 'ledger' in request.resolver_match.url_name %}active{% endif %}">
+      <i class="fas fa-book"></i><span> Ledger</span>
+    </a>
+    <a href="{% url 'asset_list_view' %}" class="nav-link {% if 'asset' in request.resolver_match.url_name %}active{% endif %}">
+      <i class="fas fa-archive"></i><span> Assets</span>
+    </a>
+    {% endif %}
+
+    {% if profile.is_subadmin %}
+    <a href="{% url 'daily_report' %}" class="nav-link {% if 'report' in request.resolver_match.url_name %}active{% endif %}">
+      <i class="fas fa-chart-line"></i><span> Reports</span>
+    </a>
+    <a href="{% url 'ledger_view' %}" class="nav-link {% if 'ledger' in request.resolver_match.url_name %}active{% endif %}">
+      <i class="fas fa-book"></i><span> Ledger</span>
     </a>
     {% endif %}
 
     <a href="{% url 'wholesale_customers' %}" class="nav-link {% if 'wholesale_customer' in request.resolver_match.url_name %}active{% endif %}">
-      <i class="fas fa-handshake"></i> Wholesale
+      <i class="fas fa-handshake"></i><span> Wholesale</span>
     </a>
     <a href="{% url 'credits_list' %}" class="nav-link {% if 'credit' in request.resolver_match.url_name %}active{% endif %}">
-      <i class="fas fa-file-invoice-dollar"></i> Credits
+      <i class="fas fa-file-invoice-dollar"></i><span> Credits</span>
     </a>
+
+    {% if profile.is_area_manager %}
+    <a href="{% url 'am_dashboard' %}" class="nav-link {% if 'am_dashboard' in request.resolver_match.url_name %}active{% endif %}">
+      <i class="fas fa-tachometer-alt"></i><span> My Dashboard</span>
+    </a>
+    {% endif %}
 
     {% if profile.is_superadmin %}
     <a href="{% url 'store_list' %}" class="nav-link {% if 'store' in request.resolver_match.url_name %}active{% endif %}">
-      <i class="fas fa-store"></i> Stores
+      <i class="fas fa-store"></i><span> Stores</span>
     </a>
     <a href="{% url 'user_management' %}" class="nav-link {% if request.resolver_match.url_name == 'user_management' %}active{% endif %}">
-      <i class="fas fa-users-cog"></i> Users
+      <i class="fas fa-users-cog"></i><span> Users</span>
     </a>
     <a href="{% url 'area_manager_list' %}" class="nav-link {% if 'area_manager' in request.resolver_match.url_name %}active{% endif %}">
-      <i class="fas fa-user-shield"></i> Area Managers
+      <i class="fas fa-user-shield"></i><span> Area Mgrs</span>
     </a>
     {% endif %}
   </div>
@@ -94,7 +115,7 @@
   <div class="mnd-header">
     <img src="{% static 'pos/images/logo.jpg' %}" alt="Logo" class="nav-logo">
     <div class="nav-brand-text">
-      <span class="nav-title">Ocean Waves</span>
+      <span class="nav-title">OCEANWAVES</span>
       <span class="nav-sub">Sea Foods POS</span>
     </div>
     <button class="mnd-close" onclick="toggleMobileNav()"><i class="fas fa-times"></i></button>
@@ -118,8 +139,22 @@
     <a href="{% url 'employee_list' %}" class="mnd-link {% if 'employee' in request.resolver_match.url_name %}active{% endif %}" onclick="toggleMobileNav()">
       <i class="fas fa-users"></i> Employees
     </a>
-    <a href="{% url 'reports' %}" class="mnd-link {% if 'report' in request.resolver_match.url_name %}active{% endif %}" onclick="toggleMobileNav()">
+    <a href="{% url 'daily_report' %}" class="mnd-link {% if 'report' in request.resolver_match.url_name %}active{% endif %}" onclick="toggleMobileNav()">
       <i class="fas fa-chart-line"></i> Reports
+    </a>
+    <a href="{% url 'ledger_view' %}" class="mnd-link {% if 'ledger' in request.resolver_match.url_name %}active{% endif %}" onclick="toggleMobileNav()">
+      <i class="fas fa-book"></i> Ledger
+    </a>
+    <a href="{% url 'asset_list_view' %}" class="mnd-link {% if 'asset' in request.resolver_match.url_name %}active{% endif %}" onclick="toggleMobileNav()">
+      <i class="fas fa-archive"></i> Assets
+    </a>
+    {% endif %}
+    {% if profile.is_subadmin %}
+    <a href="{% url 'daily_report' %}" class="mnd-link {% if 'report' in request.resolver_match.url_name %}active{% endif %}" onclick="toggleMobileNav()">
+      <i class="fas fa-chart-line"></i> Reports
+    </a>
+    <a href="{% url 'ledger_view' %}" class="mnd-link {% if 'ledger' in request.resolver_match.url_name %}active{% endif %}" onclick="toggleMobileNav()">
+      <i class="fas fa-book"></i> Ledger
     </a>
     {% endif %}
     <a href="{% url 'wholesale_customers' %}" class="mnd-link {% if 'wholesale_customer' in request.resolver_match.url_name %}active{% endif %}" onclick="toggleMobileNav()">
@@ -128,6 +163,11 @@
     <a href="{% url 'credits_list' %}" class="mnd-link {% if 'credit' in request.resolver_match.url_name %}active{% endif %}" onclick="toggleMobileNav()">
       <i class="fas fa-file-invoice-dollar"></i> Credits
     </a>
+    {% if profile.is_area_manager %}
+    <a href="{% url 'am_dashboard' %}" class="mnd-link {% if 'am_dashboard' in request.resolver_match.url_name %}active{% endif %}" onclick="toggleMobileNav()">
+      <i class="fas fa-tachometer-alt"></i> My Dashboard
+    </a>
+    {% endif %}
     {% if profile.is_superadmin %}
     <a href="{% url 'store_list' %}" class="mnd-link {% if 'store' in request.resolver_match.url_name %}active{% endif %}" onclick="toggleMobileNav()">
       <i class="fas fa-store"></i> Stores

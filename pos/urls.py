@@ -1,6 +1,8 @@
 from django.urls import path
 from . import views
 from . import views_auth
+from . import views_financials
+from . import views_reports
 
 urlpatterns = [
     # Auth
@@ -30,6 +32,7 @@ urlpatterns = [
     path('area-managers/',                views.area_manager_list,   name='area_manager_list'),
     path('area-managers/assign/',         views.area_manager_assign, name='area_manager_assign'),
     path('area-managers/set-pin/',        views.set_manager_pin,     name='set_manager_pin'),
+    path('area-managers/dashboard/',      views.am_dashboard,        name='am_dashboard'),
 
     # Billing
     path('billing/',                      views.billing,    name='billing'),
@@ -49,10 +52,23 @@ urlpatterns = [
     path('inventory/<int:pid>/delete/',   views.product_delete,  name='product_delete'),
     path('inventory/stock-log/',          views.stock_log,       name='stock_log'),
 
-    # Reports
-    path('reports/',                      views.reports,          name='reports'),
-    path('reports/export/',               views.export_excel,     name='export_excel'),
-    path('reports/approvals/',            views.approval_history, name='approval_history'),
+    # Stock Requests
+    path('stock-requests/',                   views.stock_request_list,    name='stock_request_list'),
+    path('stock-requests/create/',            views.stock_request_create,  name='stock_request_create'),
+    path('stock-requests/<int:rid>/approve/', views.stock_request_approve, name='stock_request_approve'),
+    path('stock-requests/<int:rid>/receive/', views.stock_request_receive, name='stock_request_receive'),
+    path('notifications/mark-read/',          views.mark_notifications_read, name='mark_notifications_read'),
+
+    # Reports (legacy hub → redirects to daily)
+    path('reports/',                      views.reports,                       name='reports'),
+    path('reports/export/',               views.export_excel,                  name='export_excel'),
+    path('reports/approvals/',            views.approval_history,              name='approval_history'),
+
+    # Daily & Monthly Reports
+    path('reports/daily/',                views_reports.daily_report_view,     name='daily_report'),
+    path('reports/monthly/',              views_reports.monthly_report_view,   name='monthly_report'),
+    path('reports/daily/export/',         views_reports.export_daily_excel,    name='export_daily_excel'),
+    path('reports/monthly/export/',       views_reports.export_monthly_excel,  name='export_monthly_excel'),
 
     # Expenses
     path('expenses/',                          views.expenses_page,   name='expenses_page'),
@@ -64,7 +80,8 @@ urlpatterns = [
     path('employees/add/',                     views.employee_add,    name='employee_add'),
     path('employees/<int:emp_id>/',            views.employee_detail, name='employee_detail'),
     path('employees/<int:emp_id>/edit/',       views.employee_edit,   name='employee_edit'),
-    path('employees/<int:emp_id>/delete/',     views.employee_delete, name='employee_delete'),
+    path('employees/<int:emp_id>/delete/',     views.employee_delete,      name='employee_delete'),
+    path('employees/<int:emp_id>/hard-delete/', views.employee_hard_delete, name='employee_hard_delete'),
     path('employees/<int:emp_id>/payslip/',    views.payslip_generate, name='payslip_generate'),
     path('payslips/<int:slip_id>/paid/',       views.payslip_mark_paid, name='payslip_mark_paid'),
     path('payslips/<int:slip_id>/delete/',     views.payslip_delete,   name='payslip_delete'),
@@ -78,6 +95,17 @@ urlpatterns = [
     path('credits/add-external/',                   views.credit_add_external,          name='credit_add_external'),
     path('credits/<int:cid>/pay/',                  views.credit_pay,                   name='credit_pay'),
 
+    # Ledger
+    path('ledger/',                                       views_financials.ledger_books_list,  name='ledger_view'),
+    path('ledger/book/<int:book_id>/',                    views_financials.ledger_book_detail, name='ledger_book_detail'),
+    path('ledger/<int:entry_id>/delete/',                 views_financials.ledger_entry_delete, name='ledger_entry_delete'),
+
+    # Assets
+    path('assets/',                               views_financials.asset_list_view,   name='asset_list_view'),
+    path('assets/<int:asset_id>/delete/',         views_financials.asset_delete_view, name='asset_delete_view'),
+
     # API
     path('api/product/<int:pid>/',        views.product_api, name='product_api'),
+    path('api/phonepe/initiate/',         views.phonepe_initiate, name='phonepe_initiate'),
+    path('api/phonepe/status/',           views.phonepe_status, name='phonepe_status'),
 ]

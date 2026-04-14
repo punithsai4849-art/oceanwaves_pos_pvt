@@ -1,0 +1,636 @@
+import datetime
+import calendar
+from django.shortcuts import render, redirect, get_object_or_404
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
+from django.http import HttpResponse
+from django.db.models import Sum, Q
+from django.utils.timezone import make_aware, get_current_timezone
+from .models import SaleItem, Expense, DailyStockSnapshot, Store, Product, StockLog
+from .views import get_profile, require_profile
+
+
+def _get_report_store(request, profile):
+    """Return the store to report on; superadmin can pick via ?store_id="""
+    if profile.is_superadmin:
+        store_id = request.GET.get('store_id') or request.POST.get('store_id')
+        if store_id:
+            return get_object_or_404(Store, id=store_id)
+        # Default to first active store
+        return Store.objects.filter(is_active=True).first()
+    return profile.store
+
+
+def _date_range(d):
+    tz    = get_current_timezone()
+    start = make_aware(datetime.datetime.combine(d, datetime.time.min), tz)
+    end   = make_aware(datetime.datetime.combine(d, datetime.time.max), tz)
+    return start, end
+
+
+def _month_range(year, month):
+    tz          = get_current_timezone()
+    start       = make_aware(datetime.datetime(year, month, 1, 0, 0, 0), tz)
+    last_day    = calendar.monthrange(year, month)[1]
+    end         = make_aware(datetime.datetime(year, month, last_day, 23, 59, 59), tz)
+    return start, end
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  DAILY REPORT
+# ══════════════════════════════════════════════════════════════════════════════
+@login_required
+@require_profile
+def daily_report_view(request):
+    profile = get_profile(request.user)
+    store   = _get_report_store(request, profile)
+
+    if not store:
+        messages.error(request, 'No store found.')
+        return redirect('dashboard')
+
+    if not (profile.is_superadmin or profile.is_owner or profile.is_subadmin):
+        messages.error(request, 'Access denied.')
+        return redirect('dashboard')
+
+    date_str = request.GET.get('date', datetime.date.today().isoformat())
+    try:
+        report_date = datetime.date.fromisoformat(date_str)
+    except ValueError:
+        report_date = datetime.date.today()
+
+    r_start, r_end = _date_range(report_date)
+
+    # ── Product-level data ──────────────────────────────────────────────────
+    # Sold quantities per product today
+    sold_data = (
+        SaleItem.objects
+        .filter(sale__store=store, sale__created_at__range=(r_start, r_end))
+        .values('product_id', 'product__name', 'selling_price')
+        .annotate(
+            sold_qty   = Sum('quantity'),
+            total_sale = Sum('total_amount'),
+            profit     = Sum('profit'),
+            total_cost = Sum('total_cost'),
+        )
+    )
+    sold_map = {row['product_id']: row for row in sold_data}
+
+    # Purchased (stock-in) quantities per product today
+    purchased_data = (
+        StockLog.objects
+        .filter(store=store, movement='IN', created_at__range=(r_start, r_end))
+        .values('product_id')
+        .annotate(purchased_qty=Sum('quantity'))
+    )
+    purchased_map = {row['product_id']: row['purchased_qty'] for row in purchased_data}
+
+    # DailyStockSnapshot for opening/closing
+    snapshots_qs = DailyStockSnapshot.objects.filter(
+        store=store, date=report_date
+    ).select_related('product')
+
+    # Build product rows
+    # If we have snapshots, use them; else build from sold_map
+    product_rows = []
+    if snapshots_qs.exists():
+        for snap in snapshots_qs:
+            pid  = snap.product_id
+            sold = sold_map.get(pid, {})
+            cost_price = snap.product.cost_price
+            selling_price = sold.get('selling_price') or snap.product.retail_price
+            sold_qty   = sold.get('sold_qty') or snap.sold_qty
+            total_sale = sold.get('total_sale') or 0
+            profit     = sold.get('profit') or 0
+            purchased_qty = purchased_map.get(pid, snap.purchased_qty)
+            product_rows.append({
+                'product_name'  : snap.product.name,
+                'opening_qty'   : snap.opening_qty,
+                'purchased_qty' : purchased_qty,
+                'purchase_price': cost_price,
+                'sold_qty'      : sold_qty,
+                'selling_price' : selling_price,
+                'closing_qty'   : snap.closing_qty,
+                'profit'        : profit,
+                'total_sale'    : total_sale,
+            })
+    else:
+        # No snapshot — build from sales data only
+        products = Product.objects.filter(store=store, is_active=True)
+        for p in products:
+            sold = sold_map.get(p.id)
+            if not sold and p.id not in purchased_map:
+                continue
+            sold_qty      = sold['sold_qty']   if sold else 0
+            total_sale    = sold['total_sale']  if sold else 0
+            profit_val    = sold['profit']      if sold else 0
+            purchased_qty = purchased_map.get(p.id, 0)
+            # Estimate opening = current stock + sold - purchased
+            opening_qty  = p.stock_quantity + sold_qty - purchased_qty
+            closing_qty  = p.stock_quantity
+            product_rows.append({
+                'product_name'  : p.name,
+                'opening_qty'   : opening_qty,
+                'purchased_qty' : purchased_qty,
+                'purchase_price': p.cost_price,
+                'sold_qty'      : sold_qty,
+                'selling_price' : p.retail_price,
+                'closing_qty'   : closing_qty,
+                'profit'        : profit_val,
+                'total_sale'    : total_sale,
+            })
+
+    # ── Summary ─────────────────────────────────────────────────────────────
+    agg = SaleItem.objects.filter(
+        sale__store=store, sale__created_at__range=(r_start, r_end)
+    ).aggregate(sales=Sum('total_amount'), cost=Sum('total_cost'), profit=Sum('profit'))
+
+    total_sales   = agg['sales']  or 0
+    gross_profit  = (agg['profit'] or 0)
+
+    daily_expenses = Expense.objects.filter(store=store, date=report_date, expense_type='DAILY')
+    monthly_expenses = Expense.objects.filter(store=store, date=report_date, expense_type='MONTHLY')
+    all_expenses   = Expense.objects.filter(store=store, date=report_date)
+    total_expenses = all_expenses.aggregate(t=Sum('amount'))['t'] or 0
+
+    net_profit        = gross_profit - total_expenses
+    profit_percentage = float(net_profit / total_sales * 100) if total_sales else 0
+
+    all_stores = Store.objects.filter(is_active=True) if profile.is_superadmin else None
+
+    return render(request, 'pos/reports_daily.html', {
+        'profile'          : profile,
+        'store'            : store,
+        'all_stores'       : all_stores,
+        'report_date'      : report_date,
+        'product_rows'     : product_rows,
+        'daily_expenses'   : daily_expenses,
+        'monthly_expenses' : monthly_expenses,
+        'all_expenses'     : all_expenses,
+        'total_sales'      : total_sales,
+        'gross_profit'     : gross_profit,
+        'total_expenses'   : total_expenses,
+        'net_profit'       : net_profit,
+        'profit_percentage': profit_percentage,
+    })
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  MONTHLY REPORT
+# ══════════════════════════════════════════════════════════════════════════════
+@login_required
+@require_profile
+def monthly_report_view(request):
+    profile = get_profile(request.user)
+    store   = _get_report_store(request, profile)
+
+    if not store:
+        messages.error(request, 'No store found.')
+        return redirect('dashboard')
+
+    if not (profile.is_superadmin or profile.is_owner or profile.is_subadmin):
+        messages.error(request, 'Access denied.')
+        return redirect('dashboard')
+
+    month_str = request.GET.get('month', datetime.date.today().strftime('%Y-%m'))
+    try:
+        year, month = map(int, month_str.split('-'))
+    except ValueError:
+        year, month = datetime.date.today().year, datetime.date.today().month
+
+    m_start, m_end = _month_range(year, month)
+
+    # ── Product-level aggregated sales ──────────────────────────────────────
+    sold_data = (
+        SaleItem.objects
+        .filter(sale__store=store, sale__created_at__range=(m_start, m_end))
+        .values('product_id', 'product__name')
+        .annotate(
+            sold_qty   = Sum('quantity'),
+            total_sale = Sum('total_amount'),
+            profit     = Sum('profit'),
+            total_cost = Sum('total_cost'),
+        )
+    )
+
+    # Purchased in the month
+    purchased_data = (
+        StockLog.objects
+        .filter(store=store, movement='IN', created_at__range=(m_start, m_end))
+        .values('product_id')
+        .annotate(purchased_qty=Sum('quantity'))
+    )
+    purchased_map = {row['product_id']: row['purchased_qty'] for row in purchased_data}
+
+    # Snapshots: get first (opening) and last (closing) snapshot per product
+    first_snapshot_date = datetime.date(year, month, 1)
+    last_snapshot_date  = datetime.date(year, month, calendar.monthrange(year, month)[1])
+
+    first_snaps = {
+        s.product_id: s for s in DailyStockSnapshot.objects.filter(
+            store=store, date=first_snapshot_date
+        )
+    }
+    last_snaps = {
+        s.product_id: s for s in DailyStockSnapshot.objects.filter(
+            store=store, date=last_snapshot_date
+        )
+    }
+
+    product_rows = []
+    for row in sold_data:
+        pid           = row['product_id']
+        pname         = row['product__name']
+        sold_qty      = row['sold_qty'] or 0
+        total_sale    = row['total_sale'] or 0
+        profit_val    = row['profit'] or 0
+        purchased_qty = purchased_map.get(pid, 0)
+
+        opening_qty = first_snaps[pid].opening_qty if pid in first_snaps else 0
+        closing_qty = last_snaps[pid].closing_qty  if pid in last_snaps  else 0
+
+        # Derive prices from product
+        try:
+            p = Product.objects.get(id=pid)
+            cost_price    = p.cost_price
+            selling_price = p.retail_price
+        except Product.DoesNotExist:
+            cost_price = selling_price = 0
+
+        product_rows.append({
+            'product_name'  : pname,
+            'opening_qty'   : opening_qty,
+            'purchased_qty' : purchased_qty,
+            'purchase_price': cost_price,
+            'sold_qty'      : sold_qty,
+            'selling_price' : selling_price,
+            'closing_qty'   : closing_qty,
+            'profit'        : profit_val,
+            'total_sale'    : total_sale,
+        })
+
+    # ── Summary ─────────────────────────────────────────────────────────────
+    agg = SaleItem.objects.filter(
+        sale__store=store, sale__created_at__range=(m_start, m_end)
+    ).aggregate(sales=Sum('total_amount'), cost=Sum('total_cost'), profit=Sum('profit'))
+
+    total_sales  = agg['sales']  or 0
+    gross_profit = agg['profit'] or 0
+
+    daily_exp   = Expense.objects.filter(store=store, date__year=year, date__month=month, expense_type='DAILY')
+    monthly_exp = Expense.objects.filter(store=store, date__year=year, date__month=month, expense_type='MONTHLY')
+    all_exp     = Expense.objects.filter(store=store, date__year=year, date__month=month)
+    total_expenses = all_exp.aggregate(t=Sum('amount'))['t'] or 0
+
+    # Day-wise expense breakdown
+    daily_exp_total   = daily_exp.aggregate(t=Sum('amount'))['t']   or 0
+    monthly_exp_total = monthly_exp.aggregate(t=Sum('amount'))['t'] or 0
+
+    net_profit        = gross_profit - total_expenses
+    profit_percentage = float(net_profit / total_sales * 100) if total_sales else 0
+
+    all_stores = Store.objects.filter(is_active=True) if profile.is_superadmin else None
+
+    return render(request, 'pos/reports_monthly.html', {
+        'profile'           : profile,
+        'store'             : store,
+        'all_stores'        : all_stores,
+        'month_str'         : month_str,
+        'year'              : year,
+        'month'             : month,
+        'month_name'        : datetime.date(year, month, 1).strftime('%B %Y'),
+        'product_rows'      : product_rows,
+        'daily_expenses'    : daily_exp,
+        'monthly_expenses'  : monthly_exp,
+        'daily_exp_total'   : daily_exp_total,
+        'monthly_exp_total' : monthly_exp_total,
+        'total_sales'       : total_sales,
+        'gross_profit'      : gross_profit,
+        'total_expenses'    : total_expenses,
+        'net_profit'        : net_profit,
+        'profit_percentage' : profit_percentage,
+    })
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  EXCEL EXPORTS
+# ══════════════════════════════════════════════════════════════════════════════
+def _style_header(ws, row_num, headers, fill_color='1A5276'):
+    """Apply header styling to an openpyxl worksheet row."""
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    fill   = PatternFill(start_color=fill_color, end_color=fill_color, fill_type='solid')
+    font   = Font(color='FFFFFF', bold=True, name='Calibri', size=11)
+    border = Border(
+        bottom=Side(style='medium', color='FFFFFF'),
+        right =Side(style='thin',   color='FFFFFF'),
+    )
+    align = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=row_num, column=col, value=header)
+        cell.fill   = fill
+        cell.font   = font
+        cell.border = border
+        cell.alignment = align
+
+
+def _style_summary_row(ws, row_num, label_col, value_col, label, value, label_color='1A5276'):
+    from openpyxl.styles import Font, PatternFill, Alignment
+    lc = ws.cell(row=row_num, column=label_col, value=label)
+    lc.font      = Font(bold=True, color='FFFFFF', name='Calibri')
+    lc.fill      = PatternFill(start_color=label_color, end_color=label_color, fill_type='solid')
+    lc.alignment = Alignment(horizontal='right')
+    vc = ws.cell(row=row_num, column=value_col, value=float(value) if value else 0)
+    vc.font      = Font(bold=True, name='Calibri')
+    vc.alignment = Alignment(horizontal='right')
+
+
+@login_required
+@require_profile
+def export_daily_excel(request):
+    """Export Daily Report to Excel."""
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, numbers
+    from openpyxl.utils import get_column_letter
+
+    profile = get_profile(request.user)
+    store   = _get_report_store(request, profile)
+    if not store or not (profile.is_superadmin or profile.is_owner or profile.is_subadmin):
+        return redirect('dashboard')
+
+    date_str = request.GET.get('date', datetime.date.today().isoformat())
+    try:
+        report_date = datetime.date.fromisoformat(date_str)
+    except ValueError:
+        report_date = datetime.date.today()
+
+    r_start, r_end = _date_range(report_date)
+
+    sold_data = (
+        SaleItem.objects.filter(sale__store=store, sale__created_at__range=(r_start, r_end))
+        .values('product_id', 'product__name', 'selling_price')
+        .annotate(sold_qty=Sum('quantity'), total_sale=Sum('total_amount'), profit=Sum('profit'))
+    )
+    sold_map = {row['product_id']: row for row in sold_data}
+
+    purchased_data = (
+        StockLog.objects.filter(store=store, movement='IN', created_at__range=(r_start, r_end))
+        .values('product_id').annotate(purchased_qty=Sum('quantity'))
+    )
+    purchased_map = {row['product_id']: row['purchased_qty'] for row in purchased_data}
+
+    snapshots = DailyStockSnapshot.objects.filter(store=store, date=report_date).select_related('product')
+    product_rows = []
+    if snapshots.exists():
+        for s in snapshots:
+            sold = sold_map.get(s.product_id, {})
+            product_rows.append({
+                'name'         : s.product.name,
+                'opening_qty'  : float(s.opening_qty),
+                'purchased_qty': float(purchased_map.get(s.product_id, s.purchased_qty)),
+                'cost_price'   : float(s.product.cost_price),
+                'sold_qty'     : float(sold.get('sold_qty') or s.sold_qty),
+                'sell_price'   : float(sold.get('selling_price') or s.product.retail_price),
+                'closing_qty'  : float(s.closing_qty),
+                'profit'       : float(sold.get('profit') or 0),
+                'total_sale'   : float(sold.get('total_sale') or 0),
+            })
+    else:
+        # No snapshot — build from live sales + stock data
+        products = Product.objects.filter(store=store, is_active=True)
+        for p in products:
+            sold = sold_map.get(p.id)
+            if not sold and p.id not in purchased_map:
+                continue
+            sold_qty      = float(sold['sold_qty'])   if sold else 0
+            total_sale    = float(sold['total_sale'])  if sold else 0
+            profit_val    = float(sold['profit'])      if sold else 0
+            purchased_qty = float(purchased_map.get(p.id, 0))
+            opening_qty   = float(p.stock_quantity) + sold_qty - purchased_qty
+            closing_qty   = float(p.stock_quantity)
+            product_rows.append({
+                'name'         : p.name,
+                'opening_qty'  : opening_qty,
+                'purchased_qty': purchased_qty,
+                'cost_price'   : float(p.cost_price),
+                'sold_qty'     : sold_qty,
+                'sell_price'   : float(p.retail_price),
+                'closing_qty'  : closing_qty,
+                'profit'       : profit_val,
+                'total_sale'   : total_sale,
+            })
+
+    expenses = Expense.objects.filter(store=store, date=report_date)
+    total_expenses = expenses.aggregate(t=Sum('amount'))['t'] or 0
+    total_sales    = sum(r['total_sale'] for r in product_rows)
+    gross_profit   = sum(r['profit']     for r in product_rows)
+    net_profit     = gross_profit - float(total_expenses)
+    profit_pct     = (net_profit / total_sales * 100) if total_sales else 0
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = f"Daily Report {report_date}"
+
+    # Title
+    ws.merge_cells('A1:J1')
+    title_cell = ws['A1']
+    title_cell.value     = f"OCEANWAVES SEA FOODS — Daily Report: {report_date.strftime('%d %B %Y')}"
+    title_cell.font      = Font(bold=True, size=14, color='1A5276', name='Calibri')
+    title_cell.alignment = Alignment(horizontal='center')
+
+    ws.merge_cells('A2:J2')
+    sub_cell = ws['A2']
+    sub_cell.value     = f"Store: {store.name}"
+    sub_cell.font      = Font(bold=True, size=11, color='555555', name='Calibri')
+    sub_cell.alignment = Alignment(horizontal='center')
+
+    headers = ['S.No', 'Product Name', 'Opening Qty', 'Purchased Qty', 'Purchase Price',
+               'Sold Qty', 'Selling Price', 'Closing Qty', 'Profit (₹)', 'Total Sale (₹)']
+    _style_header(ws, 4, headers)
+
+    alt_fill = PatternFill(start_color='EBF5FB', end_color='EBF5FB', fill_type='solid')
+    for idx, row in enumerate(product_rows, 1):
+        r = idx + 4
+        data = [idx, row['name'], row['opening_qty'], row['purchased_qty'], row['cost_price'],
+                row['sold_qty'], row['sell_price'], row['closing_qty'], row['profit'], row['total_sale']]
+        for col, val in enumerate(data, 1):
+            cell = ws.cell(row=r, column=col, value=val)
+            cell.alignment = Alignment(horizontal='right' if col > 2 else 'left')
+            if idx % 2 == 0:
+                cell.fill = alt_fill
+
+    # Summary block
+    summary_row = len(product_rows) + 6
+    ws.cell(row=summary_row, column=1, value='SUMMARY').font = Font(bold=True, size=12, color='1A5276', name='Calibri')
+    summary_data = [
+        ('Total Sales (₹)',    total_sales),
+        ('Gross Profit (₹)',   gross_profit),
+        ('Total Expenses (₹)', float(total_expenses)),
+        ('Net Profit (₹)',     net_profit),
+        ('Profit Percentage',  f"{profit_pct:.2f}%"),
+    ]
+    for i, (label, value) in enumerate(summary_data):
+        r = summary_row + 1 + i
+        lc = ws.cell(row=r, column=1, value=label)
+        lc.font      = Font(bold=True, name='Calibri')
+        lc.fill      = PatternFill(start_color='D6EAF8', end_color='D6EAF8', fill_type='solid')
+        vc = ws.cell(row=r, column=2, value=value)
+        vc.font      = Font(name='Calibri')
+
+    # Expense details
+    exp_start = summary_row + len(summary_data) + 3
+    ws.cell(row=exp_start, column=1, value='EXPENSES DETAIL').font = Font(bold=True, size=12, color='1A5276')
+    _style_header(ws, exp_start + 1, ['Date', 'Category', 'Type', 'Description', 'Amount (₹)'], '884EA0')
+    for i, exp in enumerate(expenses):
+        r = exp_start + 2 + i
+        for col, val in enumerate([
+            str(exp.date), exp.get_category_display(), exp.get_expense_type_display(),
+            exp.description, float(exp.amount)
+        ], 1):
+            ws.cell(row=r, column=col, value=val)
+
+    # Column widths
+    col_widths = [6, 28, 14, 14, 14, 12, 14, 14, 14, 16]
+    for i, w in enumerate(col_widths, 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    ws.row_dimensions[1].height = 28
+    ws.row_dimensions[4].height = 30
+
+    response = HttpResponse(
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    response['Content-Disposition'] = f'attachment; filename="daily_report_{report_date}.xlsx"'
+    wb.save(response)
+    return response
+
+
+@login_required
+@require_profile
+def export_monthly_excel(request):
+    """Export Monthly Report to Excel."""
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+
+    profile = get_profile(request.user)
+    store   = _get_report_store(request, profile)
+    if not store or not (profile.is_superadmin or profile.is_owner or profile.is_subadmin):
+        return redirect('dashboard')
+
+    month_str = request.GET.get('month', datetime.date.today().strftime('%Y-%m'))
+    try:
+        year, month = map(int, month_str.split('-'))
+    except ValueError:
+        year, month = datetime.date.today().year, datetime.date.today().month
+
+    m_start, m_end = _month_range(year, month)
+    month_name = datetime.date(year, month, 1).strftime('%B %Y')
+
+    sold_data = (
+        SaleItem.objects.filter(sale__store=store, sale__created_at__range=(m_start, m_end))
+        .values('product_id', 'product__name')
+        .annotate(sold_qty=Sum('quantity'), total_sale=Sum('total_amount'), profit=Sum('profit'))
+    )
+    purchased_data = (
+        StockLog.objects.filter(store=store, movement='IN', created_at__range=(m_start, m_end))
+        .values('product_id').annotate(purchased_qty=Sum('quantity'))
+    )
+    purchased_map = {row['product_id']: row['purchased_qty'] for row in purchased_data}
+    first_snaps = {s.product_id: s for s in DailyStockSnapshot.objects.filter(store=store, date=datetime.date(year, month, 1))}
+    last_snaps  = {s.product_id: s for s in DailyStockSnapshot.objects.filter(store=store, date=datetime.date(year, month, calendar.monthrange(year, month)[1]))}
+
+    product_rows = []
+    for row in sold_data:
+        pid = row['product_id']
+        try:
+            p = Product.objects.get(id=pid)
+            cost_price = float(p.cost_price)
+            sell_price = float(p.retail_price)
+        except Product.DoesNotExist:
+            cost_price = sell_price = 0
+            p = None
+        product_rows.append({
+            'name'         : row['product__name'],
+            'opening_qty'  : float(first_snaps[pid].opening_qty) if pid in first_snaps else 0,
+            'purchased_qty': float(purchased_map.get(pid, 0)),
+            'cost_price'   : cost_price,
+            'sold_qty'     : float(row['sold_qty'] or 0),
+            'sell_price'   : sell_price,
+            'closing_qty'  : float(last_snaps[pid].closing_qty) if pid in last_snaps else (
+                             float(p.stock_quantity) if p else 0),
+            'profit'       : float(row['profit'] or 0),
+            'total_sale'   : float(row['total_sale'] or 0),
+        })
+
+    all_exp  = Expense.objects.filter(store=store, date__year=year, date__month=month)
+    total_exp = all_exp.aggregate(t=Sum('amount'))['t'] or 0
+    total_sales  = sum(r['total_sale'] for r in product_rows)
+    gross_profit = sum(r['profit']     for r in product_rows)
+    net_profit   = gross_profit - float(total_exp)
+    profit_pct   = (net_profit / total_sales * 100) if total_sales else 0
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = f"Monthly Report {month_name}"
+
+    ws.merge_cells('A1:J1')
+    c = ws['A1']
+    c.value     = f"OCEANWAVES SEA FOODS — Monthly Report: {month_name}"
+    c.font      = Font(bold=True, size=14, color='1A5276', name='Calibri')
+    c.alignment = Alignment(horizontal='center')
+    ws.merge_cells('A2:J2')
+    c2 = ws['A2']
+    c2.value     = f"Store: {store.name}"
+    c2.font      = Font(bold=True, size=11, color='555555', name='Calibri')
+    c2.alignment = Alignment(horizontal='center')
+
+    headers = ['S.No', 'Product Name', 'Opening Qty', 'Purchased Qty', 'Purchase Price',
+               'Sold Qty', 'Selling Price', 'Closing Qty', 'Profit (₹)', 'Total Sale (₹)']
+    _style_header(ws, 4, headers)
+    alt_fill = PatternFill(start_color='EBF5FB', end_color='EBF5FB', fill_type='solid')
+    for idx, row in enumerate(product_rows, 1):
+        r = idx + 4
+        data = [idx, row['name'], row['opening_qty'], row['purchased_qty'], row['cost_price'],
+                row['sold_qty'], row['sell_price'], row['closing_qty'], row['profit'], row['total_sale']]
+        for col, val in enumerate(data, 1):
+            cell = ws.cell(row=r, column=col, value=val)
+            cell.alignment = Alignment(horizontal='right' if col > 2 else 'left')
+            if idx % 2 == 0:
+                cell.fill = alt_fill
+
+    summary_row = len(product_rows) + 6
+    ws.cell(row=summary_row, column=1, value='MONTHLY SUMMARY').font = Font(bold=True, size=12, color='1A5276')
+    for i, (label, value) in enumerate([
+        ('Total Monthly Sales (₹)',    total_sales),
+        ('Gross Profit (₹)',           gross_profit),
+        ('Total Monthly Expenses (₹)', float(total_exp)),
+        ('Net Monthly Profit (₹)',     net_profit),
+        ('Profit Percentage',          f"{profit_pct:.2f}%"),
+    ]):
+        r = summary_row + 1 + i
+        lc = ws.cell(row=r, column=1, value=label)
+        lc.font = Font(bold=True)
+        lc.fill = PatternFill(start_color='D6EAF8', end_color='D6EAF8', fill_type='solid')
+        ws.cell(row=r, column=2, value=value)
+
+    # All expenses
+    exp_start = summary_row + 8
+    ws.cell(row=exp_start, column=1, value='ALL EXPENSES').font = Font(bold=True, size=12, color='884EA0')
+    _style_header(ws, exp_start + 1, ['Date', 'Category', 'Type', 'Description', 'Amount (₹)'], '884EA0')
+    for i, exp in enumerate(all_exp):
+        r = exp_start + 2 + i
+        for col, val in enumerate([
+            str(exp.date), exp.get_category_display(), exp.get_expense_type_display(),
+            exp.description, float(exp.amount)
+        ], 1):
+            ws.cell(row=r, column=col, value=val)
+
+    col_widths = [6, 28, 14, 14, 14, 12, 14, 14, 14, 16]
+    for i, w in enumerate(col_widths, 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+
+    response = HttpResponse(
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    response['Content-Disposition'] = f'attachment; filename="monthly_report_{year}_{month:02d}.xlsx"'
+    wb.save(response)
+    return response

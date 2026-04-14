@@ -1,0 +1,208 @@
+{% extends 'pos/base.html' %}
+{% block title %}Stock Requests — OCEANWAVES{% endblock %}
+
+{% block extra_css %}
+<style>
+  .status-badge { padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+  .status-pending { background: #fef3c7; color: #92400e; }
+  .status-approved { background: #dcfce7; color: #16a34a; }
+  .status-received { background: #d1fae5; color: #065f46; }
+  .status-discrepancy { background: #fee2e2; color: #991b1b; }
+
+  .request-card { background: white; border-radius: 12px; border: 1px solid var(--border); box-shadow: var(--shadow); overflow: hidden; margin-bottom: 20px; }
+  .request-table { width: 100%; border-collapse: collapse; }
+  .request-table th { background: #f8fafc; padding: 12px 16px; text-align: left; font-size: 11px; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--border); }
+  .request-table td { padding: 14px 16px; border-bottom: 1px solid var(--bg); font-size: 13px; vertical-align: middle; }
+  .request-table tr:last-child td { border-bottom: none; }
+
+  .qty-val { font-weight: 700; color: var(--text); }
+  .qty-sent { color: var(--primary); }
+  .qty-received { color: #16a34a; }
+
+  .action-btn { padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; border: none; display: inline-flex; align-items: center; gap: 6px; }
+  .btn-approve { background: var(--primary); color: white; }
+  .btn-receive { background: #16a34a; color: white; }
+
+  .empty-state { padding: 60px 20px; text-align: center; color: var(--muted); }
+  .empty-state i { font-size: 48px; margin-bottom: 16px; opacity: 0.3; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pg">
+  <div class="pg-header">
+    <div>
+      <h1><i class="fas fa-shipping-fast"></i> Stock Procurement</h1>
+      <p>Track and manage inventory requests between stores and management</p>
+    </div>
+    {% if not profile.is_area_manager and not profile.is_superadmin %}
+    <button class="btn-primary" onclick="openModal('stockRequestModal')"><i class="fas fa-plus"></i> New Request</button>
+    {% endif %}
+  </div>
+
+  <div class="request-card">
+    {% if requests %}
+    <div style="overflow-x:auto;">
+      <table class="request-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            {% if profile.is_superadmin or profile.is_area_manager %}<th>Store</th>{% endif %}
+            <th>Product</th>
+            <th>Requested By</th>
+            <th>Qty (Req / Sent / Rec)</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in requests %}
+          <tr>
+            <td>
+              <div style="font-weight:600;">{{ r.requested_at|date:"d M Y" }}</div>
+              <div style="font-size:11px; color:var(--muted);">{{ r.requested_at|date:"h:i A" }}</div>
+            </td>
+            {% if profile.is_superadmin or profile.is_area_manager %}
+            <td><span class="badge" style="background:var(--primary-xl); color:var(--primary);">{{ r.store.name }}</span></td>
+            {% endif %}
+            <td>
+              <div style="font-weight:700;">{{ r.product.name }}</div>
+              <div style="font-size:11px; color:var(--muted);">{{ r.product.get_category_display }}</div>
+            </td>
+            <td>{{ r.requested_by.get_full_name|default:r.requested_by.username }}</td>
+            <td>
+              <span class="qty-val">{{ r.requested_qty }}</span> / 
+              <span class="qty-sent">{{ r.sent_qty|default:"--" }}</span> / 
+              <span class="qty-received">{{ r.received_qty|default:"--" }}</span> kg
+            </td>
+            <td>
+              <span class="status-badge status-{{ r.status|lower }}">
+                {{ r.get_status_display }}
+              </span>
+            </td>
+            <td>
+              {% if r.status == 'PENDING' and profile.is_area_manager or profile.is_superadmin %}
+              <button class="action-btn btn-approve" onclick="openApproveModal('{{ r.id }}', '{{ r.product.name|escapejs }}', '{{ r.requested_qty }}')">
+                <i class="fas fa-check"></i> Approve & Send
+              </button>
+              {% elif r.status == 'APPROVED' and not profile.is_area_manager and not profile.is_superadmin %}
+              <button class="action-btn btn-receive" onclick="openReceiveModal('{{ r.id }}', '{{ r.product.name|escapejs }}', '{{ r.sent_qty }}')">
+                <i class="fas fa-download"></i> Receive Stock
+              </button>
+              {% else %}
+              <span style="color:var(--muted); font-size:11px;">No pending action</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <i class="fas fa-box-open"></i>
+      <h3>No stock requests found</h3>
+      <p>Requests will appear here once submitted by store owners.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Approve Modal -->
+<div class="modal-overlay" id="approveModal">
+  <div class="modal modal-sm">
+    <div class="mhdr"><h3><i class="fas fa-check-circle"></i> Approve Shipment</h3><button onclick="closeModal('approveModal')">×</button></div>
+    <form id="approveForm" method="POST" class="mform">
+      {% csrf_token %}
+      <div style="background:var(--bg); padding:12px; border-radius:8px; margin-bottom:16px;">
+        <p>Product: <strong id="appProd"></strong></p>
+        <p>Requested: <strong id="appReqQty"></strong> kg</p>
+      </div>
+      <div class="fg">
+        <label>Actual Quantity Sent (kg) *</label>
+        <input type="number" name="sent_qty" id="appSentQty" step="0.001" min="0.001" required>
+        <p style="font-size:11px; color:var(--muted); margin-top:4px;">Enter the exact quantity you are sending to the store.</p>
+      </div>
+      <div class="mactions">
+        <button type="button" class="btn-secondary" onclick="closeModal('approveModal')">Cancel</button>
+        <button type="submit" class="btn-primary">Confirm Shipment</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Receive Modal -->
+<div class="modal-overlay" id="receiveModal">
+  <div class="modal modal-sm">
+    <div class="mhdr"><h3><i class="fas fa-download"></i> Record Receipt</h3><button onclick="closeModal('receiveModal')">×</button></div>
+    <form id="receiveForm" method="POST" class="mform">
+      {% csrf_token %}
+      <div style="background:var(--bg); padding:12px; border-radius:8px; margin-bottom:16px;">
+        <p>Product: <strong id="recProd"></strong></p>
+        <p>Management Sent: <strong id="recSentQty"></strong> kg</p>
+      </div>
+      <div class="fg">
+        <label>Actual Quantity Received (kg) *</label>
+        <input type="number" name="received_qty" id="recRecQty" step="0.001" min="0.001" required>
+        <p style="font-size:11px; color:var(--muted); margin-top:4px;">Verification: If this doesn't match the sent quantity, an alert will be sent.</p>
+      </div>
+      <div class="mactions">
+        <button type="button" class="btn-secondary" onclick="closeModal('receiveModal')">Cancel</button>
+        <button type="submit" class="btn-primary" style="background:#16a34a;">Confirm & Verify</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Add the request modal here too just in case they click 'New Request' on this page -->
+<div class="modal-overlay" id="stockRequestModal">
+  <div class="modal modal-sm">
+    <div class="mhdr"><h3><i class="fas fa-clipboard-list"></i> Request Stock</h3><button onclick="closeModal('stockRequestModal')">×</button></div>
+    <form action="{% url 'stock_request_create' %}" method="POST" class="mform">
+      {% csrf_token %}
+      <div class="fg">
+        <label>Select Product *</label>
+        <select name="product_id" required>
+          <option value="">-- Choose Product --</option>
+          {% for p in products %}
+          <option value="{{ p.id }}">{{ p.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="fg">
+        <label>Requested Quantity (kg) *</label>
+        <input type="number" name="requested_qty" step="0.001" min="0.001" required>
+      </div>
+      <div class="fg">
+        <label>Notes (Optional)</label>
+        <textarea name="notes" rows="2" style="width:100%; border:1px solid var(--border); border-radius:8px; padding:8px; font-family:inherit;"></textarea>
+      </div>
+      <div class="mactions">
+        <button type="button" class="btn-secondary" onclick="closeModal('stockRequestModal')">Cancel</button>
+        <button type="submit" class="btn-primary"><i class="fas fa-paper-plane"></i> Send Request</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  function openApproveModal(id, name, qty) {
+    document.getElementById('appProd').textContent = name;
+    document.getElementById('appReqQty').textContent = qty;
+    document.getElementById('appSentQty').value = qty;
+    document.getElementById('approveForm').action = `/stock-requests/${id}/approve/`;
+    openModal('approveModal');
+  }
+
+  function openReceiveModal(id, name, sentQty) {
+    document.getElementById('recProd').textContent = name;
+    document.getElementById('recSentQty').textContent = sentQty;
+    document.getElementById('recRecQty').value = sentQty;
+    document.getElementById('receiveForm').action = `/stock-requests/${id}/receive/`;
+    openModal('receiveModal');
+  }
+</script>
+{% endblock %}

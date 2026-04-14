@@ -17,9 +17,9 @@ class Command(BaseCommand):
             subject = f"Alert: Credit Payment Due Soon for {r.customer.name}"
             
             if r.is_external:
-                msg = f"Dear {r.customer.name},\n\nYour credit payment of Rs {r.amount} for Reference '{r.external_reference}' is due on {r.due_date}.\nPlease clear the dues to maintain credit privileges.\n\nThank you,\n{store_name} (Ocean Waves POS)"
+                msg = f"Dear {r.customer.name},\n\nYour credit payment of Rs {r.amount} for Reference '{r.external_reference}' is due on {r.due_date}.\nPlease clear the dues to maintain credit privileges.\n\nOCEANWAVES SEA FOODS is part of OCEANWAVES VICTUALS PRIVATE LIMITED.\n\nThank you,\n{store_name} (OCEANWAVES POS)"
             else:
-                msg = f"Dear {r.customer.name},\n\nYour credit payment of Rs {r.sale.grand_total} for Bill #{r.sale.bill_number} is due on {r.due_date}.\nPlease clear the dues to maintain credit privileges.\n\nThank you,\n{store_name} (Ocean Waves POS)"
+                msg = f"Dear {r.customer.name},\n\nYour credit payment of Rs {r.sale.grand_total} for Bill #{r.sale.bill_number} is due on {r.due_date}.\nPlease clear the dues to maintain credit privileges.\n\nOCEANWAVES SEA FOODS is part of OCEANWAVES VICTUALS PRIVATE LIMITED.\n\nThank you,\n{store_name} (OCEANWAVES POS)"
             
             recipients = []
             if r.customer.email:

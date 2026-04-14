@@ -1,11 +1,57 @@
 {% extends 'pos/base.html' %}
-{% block title %}Credit Tracking — Ocean Waves{% endblock %}
+{% block title %}Credit Tracking — OCEANWAVES{% endblock %}
 {% block content %}
 <div class="pg">
   <style>
+    /* ── Credits page — strong readable text ── */
     .data-table thead th {
-      background-color: #27A4D1;
-      color: white;
+      background: #27A4D1;
+      color: #ffffff;
+      font-weight: 700;
+      font-size: 12px;
+      letter-spacing: .5px;
+    }
+    /* Force all body cells to dark navy — never inherit the faint --primary-d blue */
+    .data-table tbody td {
+      color: #0f2d3d;
+      font-size: 13.5px;
+    }
+    /* Date column */
+    .data-table tbody td:first-child {
+      color: #374151;
+      font-size: 13px;
+    }
+    /* Customer name — prominent */
+    .data-table tbody td:nth-child(2) strong {
+      color: #0f2d3d;
+      font-size: 14px;
+      font-weight: 700;
+    }
+    /* Bill number */
+    .data-table tbody td:nth-child(3) {
+      color: #1e40af;
+      font-weight: 600;
+    }
+    /* Store name */
+    .data-table tbody td:nth-child(4) {
+      color: #374151;
+      font-weight: 500;
+    }
+    /* Amount — green and bold */
+    .data-table tbody td:nth-child(5) {
+      color: #15803d;
+      font-weight: 700;
+      font-size: 14px;
+    }
+    /* Due date */
+    .data-table tbody td:nth-child(6) {
+      color: #92400e;
+      font-weight: 600;
+    }
+    /* Empty row */
+    .empty-mini {
+      color: #374151 !important;
+      font-size: 14px;
     }
   </style>
   <div class="pg-header">
@@ -13,7 +59,18 @@
       <h1><i class="fas fa-file-invoice-dollar"></i> Credit Records</h1>
       <p>Track wholesale credits and mark payments</p>
     </div>
-    <div style="display:flex; gap:10px;">
+    <div style="display:flex; gap:10px; align-items:center;">
+      {% if stores %}
+      <form method="GET" style="display:flex; gap:10px; align-items:center; margin:0;">
+        <select name="store_filter" onchange="this.form.submit()" style="padding: 8px; border-radius: 6px; border: 1px solid #d1d5db;">
+          <option value="">All Tracking</option>
+          <option value="external" {% if store_filter == 'external' %}selected{% endif %}>External Credits</option>
+          {% for s in stores %}
+          <option value="{{ s.id }}" {% if store_filter == s.id|stringformat:"s" %}selected{% endif %}>{{ s.name }}</option>
+          {% endfor %}
+        </select>
+      </form>
+      {% endif %}
       <a href="{% url 'wholesale_customers' %}" class="btn-secondary" style="text-decoration:none;"><i class="fas fa-users"></i> Add Customers</a>
       <a href="{% url 'credit_add_external' %}" class="btn-primary" style="text-decoration:none;"><i class="fas fa-plus"></i> Add External Credit</a>
     </div>

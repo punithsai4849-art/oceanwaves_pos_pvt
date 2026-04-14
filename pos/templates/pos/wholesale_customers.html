@@ -1,5 +1,5 @@
 {% extends 'pos/base.html' %}
-{% block title %}Wholesale Customers — Ocean Waves{% endblock %}
+{% block title %}Wholesale Customers — OCEANWAVES{% endblock %}
 {% block content %}
 <div class="pg">
   <div class="pg-header">
@@ -7,9 +7,21 @@
       <h1><i class="fas fa-handshake"></i> Wholesale Customers</h1>
       <p>Manage wholesale buyers and credit privileges</p>
     </div>
-    {% if profile.is_superadmin or profile.is_wholesale_exec or profile.is_owner or profile.is_area_manager %}
-    <button class="btn-primary" onclick="openModal('addCustomerModal')"><i class="fas fa-plus"></i> Add Customer</button>
-    {% endif %}
+    <div style="display:flex; gap:10px; align-items:center;">
+      {% if stores %}
+      <form method="GET" style="display:flex; gap:10px; align-items:center; margin:0;">
+        <select name="store_filter" onchange="this.form.submit()" style="padding: 8px; border-radius: 6px; border: 1px solid #d1d5db;">
+          <option value="">All Stores/Customers</option>
+          {% for s in stores %}
+          <option value="{{ s.id }}" {% if store_filter == s.id|stringformat:"s" %}selected{% endif %}>{{ s.name }}</option>
+          {% endfor %}
+        </select>
+      </form>
+      {% endif %}
+      {% if profile.is_superadmin or profile.is_wholesale_exec or profile.is_owner or profile.is_area_manager %}
+      <button class="btn-primary" onclick="openModal('addCustomerModal')"><i class="fas fa-plus"></i> Add Customer</button>
+      {% endif %}
+    </div>
   </div>
 
   <div class="table-card">
