@@ -413,15 +413,30 @@ def store_list(request):
     if not profile.is_superadmin:
         messages.error(request, 'Access denied.')
         return redirect('dashboard')
-    stores_qs = Store.objects.filter(is_active=True).order_by('name')
-    # Annotate separately to avoid JOIN multiplication
-    stores_with_staff    = {s.id: s.staff_count    for s in stores_qs.annotate(staff_count=Count('staff',    filter=Q(staff__is_active=True),    distinct=True))}
-    stores_with_products = {s.id: s.product_count  for s in stores_qs.annotate(product_count=Count('products', filter=Q(products__is_active=True), distinct=True))}
-    stores = list(stores_qs)
-    for s in stores:
-        s.staff_count   = stores_with_staff.get(s.id, 0)
-        s.product_count = stores_with_products.get(s.id, 0)
-    return render(request, 'pos/stores.html', {'stores': stores, 'profile': profile})
+    cache_key = 'pos_admin_stores_list'
+    cached_data = None
+    try:
+        cached_data = cache.get(cache_key)
+    except Exception:
+        pass
+
+    if not cached_data:
+        stores_qs = Store.objects.filter(is_active=True).order_by('name')
+        # Annotate separately to avoid JOIN multiplication
+        stores_with_staff    = {s.id: s.staff_count    for s in stores_qs.annotate(staff_count=Count('staff',    filter=Q(staff__is_active=True),    distinct=True))}
+        stores_with_products = {s.id: s.product_count  for s in stores_qs.annotate(product_count=Count('products', filter=Q(products__is_active=True), distinct=True))}
+        stores = list(stores_qs)
+        for s in stores:
+            s.staff_count   = stores_with_staff.get(s.id, 0)
+            s.product_count = stores_with_products.get(s.id, 0)
+        
+        cached_data = {'stores': stores}
+        try:
+            cache.set(cache_key, cached_data, timeout=60)
+        except Exception:
+            pass
+
+    return render(request, 'pos/stores.html', {'stores': cached_data['stores'], 'profile': profile})
 
 
 @login_required
@@ -537,10 +552,30 @@ def user_management(request):
             users = users.filter(store__isnull=True)
             
     stores = Store.objects.filter(is_active=True)
+    cache_key = f'pos_admin_users_{store_filter or "all"}'
+    cached_data = None
+    try:
+        cached_data = cache.get(cache_key)
+    except Exception:
+        pass
+
+    if not cached_data:
+        users_list = list(users[:200]) # Evaluate and cap
+        stores_list = list(stores)     # Evaluate
+        
+        cached_data = {
+            'users': users_list,
+            'stores': stores_list,
+        }
+        try:
+            cache.set(cache_key, cached_data, timeout=60)
+        except Exception:
+            pass
+
     return render(request, 'pos/users.html', {
-        'users': users, 
-        'stores': stores, 
-        'profile': profile,
+        'users':        cached_data['users'], 
+        'stores':       cached_data['stores'], 
+        'profile':      profile,
         'store_filter': store_filter
     })
 
@@ -1080,12 +1115,32 @@ def inventory(request):
         messages.error(request, 'Not assigned to any store.')
         return redirect('dashboard')
 
-    products = Product.objects.filter(store=store, is_active=True)
+    cache_key = f'pos_inventory_{store.id}'
+    cached_data = None
+    try:
+        cached_data = cache.get(cache_key)
+    except Exception:
+        pass
+
+    if not cached_data:
+        # Evaluate QuerySets immediately
+        products = list(Product.objects.filter(store=store, is_active=True))
+        managed_stores_list = list(managed_stores) if managed_stores else None
+        
+        cached_data = {
+            'products': products,
+            'managed_stores': managed_stores_list,
+        }
+        try:
+            cache.set(cache_key, cached_data, timeout=30)
+        except Exception:
+            pass
+
     return render(request, 'pos/inventory.html', {
-        'products':       products,
+        'products':       cached_data['products'],
         'store':          store,
         'profile':        profile,
-        'managed_stores': managed_stores,
+        'managed_stores': cached_data['managed_stores'],
     })
 
 
@@ -1255,44 +1310,75 @@ def reports(request):
 
     r_start, r_end = date_range(report_date)
 
-    qs_filter = {'sale__created_at__range': (r_start, r_end)}
-    if store:
-        qs_filter['sale__store'] = store
+    cache_key = f'pos_reports_{store.id if store else "global"}_{report_date.isoformat()}'
+    cached_data = None
+    try:
+        cached_data = cache.get(cache_key)
+    except Exception:
+        pass
 
-    items = SaleItem.objects.filter(**qs_filter).select_related('sale', 'sale__store', 'product')
-    agg   = items.aggregate(
-        total_sales=Sum('total_amount'), total_cost=Sum('total_cost'), total_profit=Sum('profit'))
+    if not cached_data:
+        items_qs = SaleItem.objects.filter(**qs_filter).select_related('sale', 'sale__store', 'product')
+        # Pre-evaluate items and aggregation
+        items = list(items_qs[:500])  # Cap at 500 for safety on low RAM
+        agg = items_qs.aggregate(
+            total_sales=Sum('total_amount'), total_cost=Sum('total_cost'), total_profit=Sum('profit'))
 
-    sale_filter = {'created_at__range': (r_start, r_end)}
-    if store:
-        sale_filter['store'] = store
-    sales = Sale.objects.filter(**sale_filter).prefetch_related('items').select_related('store')
+        sale_filter = {'created_at__range': (r_start, r_end)}
+        if store:
+            sale_filter['store'] = store
+        
+        # Pre-evaluate sales, breakdowns, and expenses
+        sales = list(Sale.objects.filter(**sale_filter).prefetch_related('items').select_related('store')[:200])
+        
+        pay_breakdown  = list(Sale.objects.filter(**sale_filter).values('payment_mode').annotate(
+            count=Count('id'), total=Sum('grand_total')).order_by('-total'))
+        type_breakdown = list(Sale.objects.filter(**sale_filter).values('bill_type').annotate(
+            count=Count('id'), total=Sum('grand_total')).order_by('-total'))
 
-    pay_breakdown  = sales.values('payment_mode').annotate(
-        count=Count('id'), total=Sum('grand_total')).order_by('-total')
-    type_breakdown = sales.values('bill_type').annotate(
-        count=Count('id'), total=Sum('grand_total')).order_by('-total')
+        expenses_filter = {'date': report_date}
+        if store:
+            expenses_filter['store'] = store
+        
+        expenses = list(Expense.objects.filter(**expenses_filter)[:100])
+        total_expense = float(Expense.objects.filter(**expenses_filter).aggregate(t=Sum('amount'))['t'] or 0)
 
-    expenses_filter = {'date': report_date}
-    if store:
-        expenses_filter['store'] = store
-    expenses     = Expense.objects.filter(**expenses_filter)
-    total_expense = expenses.aggregate(t=Sum('amount'))['t'] or 0
+        total_sales   = float(agg['total_sales']  or 0)
+        total_cost    = float(agg['total_cost']   or 0)
+        total_profit  = float(agg['total_profit'] or 0)
+        net_profit    = total_profit - total_expense
+
+        cached_data = {
+            'sales':           sales,
+            'sale_items':      items,
+            'total_sales':     total_sales,
+            'total_cost':      total_cost,
+            'total_profit':    total_profit,
+            'pay_breakdown':   pay_breakdown,
+            'type_breakdown':  type_breakdown,
+            'expenses':        expenses,
+            'total_expense':   total_expense,
+            'net_profit':      net_profit,
+        }
+        try:
+            cache.set(cache_key, cached_data, timeout=60)
+        except Exception:
+            pass
 
     ctx = {
         'profile':         profile,
         'store':           store,
         'report_date':     report_date,
-        'sales':           sales,
-        'sale_items':      items,
-        'total_sales':     agg['total_sales']  or 0,
-        'total_cost':      agg['total_cost']   or 0,
-        'total_profit':    agg['total_profit'] or 0,
-        'pay_breakdown':   pay_breakdown,
-        'type_breakdown':  type_breakdown,
-        'expenses':        expenses,
-        'total_expense':   total_expense,
-        'net_profit':      (agg['total_profit'] or 0) - total_expense,
+        'sales':           cached_data['sales'],
+        'sale_items':      cached_data['sale_items'],
+        'total_sales':     cached_data['total_sales'],
+        'total_cost':      cached_data['total_cost'],
+        'total_profit':    cached_data['total_profit'],
+        'pay_breakdown':   cached_data['pay_breakdown'],
+        'type_breakdown':  cached_data['type_breakdown'],
+        'expenses':        cached_data['expenses'],
+        'total_expense':   cached_data['total_expense'],
+        'net_profit':      cached_data['net_profit'],
     }
     return render(request, 'pos/reports.html', ctx)
 
@@ -2379,10 +2465,31 @@ def credits_list(request):
         elif store_filter == 'external':
             records = records.filter(is_external=True)
 
+    cache_key = f'pos_credits_{profile.id}_{store_filter or "all"}'
+    cached_data = None
+    try:
+        cached_data = cache.get(cache_key)
+    except Exception:
+        pass
+
+    if not cached_data:
+        # Evaluate QuerySets immediately
+        records_list = list(records[:300]) # Cap for safety
+        stores_list = list(stores)
+        
+        cached_data = {
+            'records': records_list,
+            'stores': stores_list,
+        }
+        try:
+            cache.set(cache_key, cached_data, timeout=30)
+        except Exception:
+            pass
+
     return render(request, 'pos/credits.html', {
-        'records': records, 
-        'profile': profile, 
-        'stores': stores,
+        'records':      cached_data['records'],
+        'profile':      profile,
+        'stores':       cached_data['stores'],
         'store_filter': store_filter
     })
 
