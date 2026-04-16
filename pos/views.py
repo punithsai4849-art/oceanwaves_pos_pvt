@@ -7,7 +7,7 @@ from django.http import JsonResponse, HttpResponse
 from django.utils import timezone
 from django.db.models import Sum, Count, Q, F
 from django.views.decorators.http import require_POST
-import json, decimal
+import json, decimal, threading
 from datetime import date, timedelta
 
 from .models import Store, UserProfile, Product, Sale, SaleItem, StockLog, Expense, AreaManagerStore, WholesaleApproval, Employee, PaySlip, StockRequest, Notification
@@ -217,14 +217,16 @@ def dashboard(request):
 
     t_start, t_end = today_range()
     
-    # Run the email reminders job once a day when the dashboard loads
+    # Run the email reminders job once a day when the dashboard loads (Background Thread)
     if not cache.get(f'credit_reminders_sent_{today.isoformat()}'):
-        try:
-            from django.core.management import call_command
-            call_command('check_credits')
-            cache.set(f'credit_reminders_sent_{today.isoformat()}', True, timeout=86400)
-        except Exception:
-            pass
+        def _run_reminders_task():
+            try:
+                from django.core.management import call_command
+                call_command('check_credits')
+                cache.set(f'credit_reminders_sent_{today.isoformat()}', True, timeout=86400)
+            except Exception:
+                pass
+        threading.Thread(target=_run_reminders_task, daemon=True).start()
 
     from .models import CreditRecord
     from datetime import timedelta
@@ -272,8 +274,12 @@ def dashboard(request):
                 s_agg = sales_aggs.get(s.id, {})
                 s_stock = stock_alerts.get(s.id, {})
                 store_data.append({
-                    'store_id':     s.id,
-                    'store_name':   s.name,
+                    'store': {
+                        'id':    s.id,
+                        'name':  s.name,
+                        'phone': s.phone,
+                        'gstin': s.gstin,
+                    },
                     'bill_count':   bill_counts.get(s.id, 0),
                     'total_sales':  float(s_agg.get('sales') or 0),
                     'total_profit': float(s_agg.get('profit') or 0),
