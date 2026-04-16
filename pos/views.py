@@ -219,14 +219,18 @@ def dashboard(request):
     
     # Run the email reminders job once a day when the dashboard loads (Background Thread)
     if not cache.get(f'credit_reminders_sent_{today.isoformat()}'):
+        import threading
+        from django.core.management import call_command
+
         def _run_reminders_task():
             try:
-                from django.core.management import call_command
                 call_command('check_credits')
                 cache.set(f'credit_reminders_sent_{today.isoformat()}', True, timeout=86400)
-            except Exception:
-                pass
-        threading.Thread(target=_run_reminders_task, daemon=True).start()
+            except Exception as e:
+                print("check_credits error:", e)
+
+        if request.user.is_superuser:
+            threading.Thread(target=_run_reminders_task, daemon=True).start()
 
     from .models import CreditRecord
     from datetime import timedelta
