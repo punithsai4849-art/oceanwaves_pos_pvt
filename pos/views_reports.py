@@ -8,6 +8,7 @@ from django.db.models import Sum, Q
 from django.utils.timezone import make_aware, get_current_timezone
 from .models import SaleItem, Expense, DailyStockSnapshot, Store, Product, StockLog
 from .views import get_profile, require_profile
+from django.core.cache import cache
 
 
 def _get_report_store(request, profile):
@@ -61,15 +62,17 @@ def daily_report_view(request):
 
     r_start, r_end = _date_range(report_date)
 
-    from django.core.cache import cache
     cache_key = f'pos_daily_report_{store.id}_{report_date.isoformat()}'
-    cached_data = cache.get(cache_key)
+    cached_data = None
+    try:
+        cached_data = cache.get(cache_key)
+    except Exception:
+        pass
 
     if not cached_data:
         # ── Product-level data ──────────────────────────────────────────────────
         # Sold quantities per product today
-        sold_data = (
-            SaleItem.objects
+        sold_list = list(SaleItem.objects
             .filter(sale__store=store, sale__created_at__range=(r_start, r_end))
             .values('product_id', 'product__name', 'selling_price')
             .annotate(
@@ -77,66 +80,63 @@ def daily_report_view(request):
                 total_sale = Sum('total_amount'),
                 profit     = Sum('profit'),
                 total_cost = Sum('total_cost'),
-            )
-        )
-        sold_map = {row['product_id']: row for row in sold_data}
+            ))
+        sold_map = {row['product_id']: row for row in sold_list}
 
         # Purchased (stock-in) quantities per product today
-        purchased_data = (
-            StockLog.objects
+        purchased_list = list(StockLog.objects
             .filter(store=store, movement='IN', created_at__range=(r_start, r_end))
             .values('product_id')
-            .annotate(purchased_qty=Sum('quantity'))
-        )
-        purchased_map = {row['product_id']: row['purchased_qty'] for row in purchased_data}
+            .annotate(purchased_qty=Sum('quantity')))
+        purchased_map = {row['product_id']: row['purchased_qty'] for row in purchased_list}
 
         # DailyStockSnapshot for opening/closing
-        snapshots_qs = DailyStockSnapshot.objects.filter(
+        snapshots_list = list(DailyStockSnapshot.objects.filter(
             store=store, date=report_date
-        ).select_related('product')
+        ).select_related('product'))
 
         product_rows = []
-        if snapshots_qs.exists():
-            for snap in snapshots_qs:
+        if snapshots_list:
+            for snap in snapshots_list:
                 pid  = snap.product_id
                 sold = sold_map.get(pid, {})
-                cost_price = snap.product.cost_price
-                selling_price = sold.get('selling_price') or snap.product.retail_price
-                sold_qty   = sold.get('sold_qty') or snap.sold_qty
-                total_sale = sold.get('total_sale') or 0
-                profit     = sold.get('profit') or 0
-                purchased_qty = purchased_map.get(pid, snap.purchased_qty)
+                cost_price = float(snap.product.cost_price or 0)
+                selling_price = float(sold.get('selling_price') or snap.product.retail_price or 0)
+                sold_qty   = float(sold.get('sold_qty') or snap.sold_qty or 0)
+                total_sale = float(sold.get('total_sale') or 0)
+                profit     = float(sold.get('profit') or 0)
+                purchased_qty = float(purchased_map.get(pid, snap.purchased_qty or 0))
                 product_rows.append({
                     'product_name'  : snap.product.name,
-                    'opening_qty'   : snap.opening_qty,
+                    'opening_qty'   : float(snap.opening_qty or 0),
                     'purchased_qty' : purchased_qty,
                     'purchase_price': cost_price,
                     'sold_qty'      : sold_qty,
                     'selling_price' : selling_price,
-                    'closing_qty'   : snap.closing_qty,
+                    'closing_qty'   : float(snap.closing_qty or 0),
                     'profit'        : profit,
                     'total_sale'    : total_sale,
                 })
         else:
             # No snapshot — build from live data
-            products = Product.objects.filter(store=store, is_active=True)
+            products = list(Product.objects.filter(store=store, is_active=True))
             for p in products:
                 sold = sold_map.get(p.id)
                 if not sold and p.id not in purchased_map:
                     continue
-                sold_qty      = sold['sold_qty']   if sold else 0
-                total_sale    = sold['total_sale']  if sold else 0
-                profit_val    = sold['profit']      if sold else 0
-                purchased_qty = purchased_map.get(p.id, 0)
-                opening_qty   = p.stock_quantity + sold_qty - purchased_qty
+                sold_qty      = float(sold['sold_qty']   if sold else 0)
+                total_sale    = float(sold['total_sale']  if sold else 0)
+                profit_val    = float(sold['profit']      if sold else 0)
+                purchased_qty = float(purchased_map.get(p.id, 0))
+                opening_qty   = float(p.stock_quantity) + sold_qty - purchased_qty
                 product_rows.append({
                     'product_name'  : p.name,
                     'opening_qty'   : opening_qty,
                     'purchased_qty' : purchased_qty,
-                    'purchase_price': p.cost_price,
+                    'purchase_price': float(p.cost_price or 0),
                     'sold_qty'      : sold_qty,
-                    'selling_price' : p.retail_price,
-                    'closing_qty'   : p.stock_quantity,
+                    'selling_price' : float(p.retail_price or 0),
+                    'closing_qty'   : float(p.stock_quantity or 0),
                     'profit'        : profit_val,
                     'total_sale'    : total_sale,
                 })
@@ -145,12 +145,10 @@ def daily_report_view(request):
         agg = SaleItem.objects.filter(
             sale__store=store, sale__created_at__range=(r_start, r_end)
         ).aggregate(sales=Sum('total_amount'), cost=Sum('total_cost'), profit=Sum('profit'))
+        total_sales   = float(agg['sales']  or 0)
+        gross_profit  = float(agg['profit'] or 0)
 
-        total_sales   = agg['sales']  or 0
-        gross_profit  = (agg['profit'] or 0)
-
-        all_expenses   = Expense.objects.filter(store=store, date=report_date)
-        total_expenses = all_expenses.aggregate(t=Sum('amount'))['t'] or 0
+        total_expenses = float(Expense.objects.filter(store=store, date=report_date).aggregate(t=Sum('amount'))['t'] or 0)
 
         net_profit        = gross_profit - total_expenses
         profit_percentage = float(net_profit / total_sales * 100) if total_sales else 0
@@ -163,7 +161,10 @@ def daily_report_view(request):
             'net_profit'       : net_profit,
             'profit_percentage': profit_percentage,
         }
-        cache.set(cache_key, cached_data, timeout=60)
+        try:
+            cache.set(cache_key, cached_data, timeout=60)
+        except Exception:
+            pass
 
     # Re-fetch specific expense lists (cheap, not easily cached as QS)
     daily_expenses   = Expense.objects.filter(store=store, date=report_date, expense_type='DAILY')
@@ -214,14 +215,16 @@ def monthly_report_view(request):
 
     m_start, m_end = _month_range(year, month)
 
-    from django.core.cache import cache
     cache_key = f'pos_monthly_report_{store.id}_{year}_{month}'
-    cached_data = cache.get(cache_key)
+    cached_data = None
+    try:
+        cached_data = cache.get(cache_key)
+    except Exception:
+        pass
 
     if not cached_data:
         # ── Product-level aggregated sales ──────────────────────────────────────
-        sold_data = (
-            SaleItem.objects
+        sold_list = list(SaleItem.objects
             .filter(sale__store=store, sale__created_at__range=(m_start, m_end))
             .values('product_id', 'product__name', 'product__cost_price', 'product__retail_price')
             .annotate(
@@ -229,17 +232,14 @@ def monthly_report_view(request):
                 total_sale = Sum('total_amount'),
                 profit     = Sum('profit'),
                 total_cost = Sum('total_cost'),
-            )
-        )
+            ))
 
         # Purchased in the month
-        purchased_data = (
-            StockLog.objects
+        purchased_list = list(StockLog.objects
             .filter(store=store, movement='IN', created_at__range=(m_start, m_end))
             .values('product_id')
-            .annotate(purchased_qty=Sum('quantity'))
-        )
-        purchased_map = {row['product_id']: row['purchased_qty'] for row in purchased_data}
+            .annotate(purchased_qty=Sum('quantity')))
+        purchased_map = {row['product_id']: row['purchased_qty'] for row in purchased_list}
 
         # Snapshots: get first (opening) and last (closing) snapshot per product
         first_snapshot_date = datetime.date(year, month, 1)
@@ -257,20 +257,19 @@ def monthly_report_view(request):
         }
 
         product_rows = []
-        for row in sold_data:
+        for row in sold_list:
             pid           = row['product_id']
             pname         = row['product__name']
-            sold_qty      = row['sold_qty'] or 0
-            total_sale    = row['total_sale'] or 0
-            profit_val    = row['profit'] or 0
-            purchased_qty = purchased_map.get(pid, 0)
+            sold_qty      = float(row['sold_qty'] or 0)
+            total_sale    = float(row['total_sale'] or 0)
+            profit_val    = float(row['profit'] or 0)
+            purchased_qty = float(purchased_map.get(pid, 0))
 
-            opening_qty = first_snaps[pid].opening_qty if pid in first_snaps else 0
-            closing_qty = last_snaps[pid].closing_qty  if pid in last_snaps  else 0
+            opening_qty = float(first_snaps[pid].opening_qty if pid in first_snaps else 0)
+            closing_qty = float(last_snaps[pid].closing_qty  if pid in last_snaps  else 0)
 
-            # Efficiently use pre-fetched product data
-            cost_price    = row['product__cost_price'] or 0
-            selling_price = row['product__retail_price'] or 0
+            cost_price    = float(row['product__cost_price'] or 0)
+            selling_price = float(row['product__retail_price'] or 0)
 
             product_rows.append({
                 'product_name'  : pname,
@@ -289,11 +288,10 @@ def monthly_report_view(request):
             sale__store=store, sale__created_at__range=(m_start, m_end)
         ).aggregate(sales=Sum('total_amount'), cost=Sum('total_cost'), profit=Sum('profit'))
 
-        total_sales  = agg['sales']  or 0
-        gross_profit = agg['profit'] or 0
+        total_sales  = float(agg['sales']  or 0)
+        gross_profit = float(agg['profit'] or 0)
 
-        all_exp        = Expense.objects.filter(store=store, date__year=year, date__month=month)
-        total_expenses = all_exp.aggregate(t=Sum('amount'))['t'] or 0
+        total_expenses = float(Expense.objects.filter(store=store, date__year=year, date__month=month).aggregate(t=Sum('amount'))['t'] or 0)
 
         net_profit        = gross_profit - total_expenses
         profit_percentage = float(net_profit / total_sales * 100) if total_sales else 0
@@ -306,7 +304,10 @@ def monthly_report_view(request):
             'net_profit'       : net_profit,
             'profit_percentage': profit_percentage,
         }
-        cache.set(cache_key, cached_data, timeout=60)
+        try:
+            cache.set(cache_key, cached_data, timeout=60)
+        except Exception:
+            pass
 
     # Re-fetch specific expense lists/totals (cheap)
     daily_exp   = Expense.objects.filter(store=store, date__year=year, date__month=month, expense_type='DAILY')
