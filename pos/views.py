@@ -233,48 +233,93 @@ def dashboard(request):
     
     if profile.is_superadmin or profile.role in ('AREAMANAGER', 'WHOLESALE_EXEC'):
         # Global view across all stores
-        if profile.is_superadmin:
-            stores = Store.objects.filter(is_active=True)
-        else:
-            stores = Store.objects.filter(id__in=AreaManagerStore.objects.filter(manager__user=request.user).values('store_id'))
+        cache_key = f'pos_dashboard_admin_{request.user.id}_{today.isoformat()}'
+        cached_data = cache.get(cache_key)
+        
+        if not cached_data:
+            if profile.is_superadmin:
+                stores = Store.objects.filter(is_active=True)
+            else:
+                stores = Store.objects.filter(id__in=AreaManagerStore.objects.filter(manager__user=request.user).values('store_id'))
+                
+            # ── Optimized Bulk Queries ──────────────────────────────────────────
+            sales_aggs = {
+                row['sale__store']: row for row in SaleItem.objects.filter(
+                    sale__store__in=stores, sale__created_at__range=(t_start, t_end)
+                ).values('sale__store').annotate(
+                    sales=Sum('total_amount'), 
+                    profit=Sum('profit')
+                )
+            }
             
-        store_data = []
-        for s in stores:
-            today_sales = Sale.objects.filter(store=s, created_at__range=(t_start, t_end))
-            agg = SaleItem.objects.filter(
-                sale__store=s, sale__created_at__range=(t_start, t_end)
-            ).aggregate(sales=Sum('total_amount'), cost=Sum('total_cost'), profit=Sum('profit'))
-            low_stock = Product.objects.filter(
-                store=s, is_active=True,
-                stock_quantity__lte=F('low_stock_alert'), stock_quantity__gt=0
+            bill_counts = {
+                row['store']: row['count'] for row in Sale.objects.filter(
+                    store__in=stores, created_at__range=(t_start, t_end)
+                ).values('store').annotate(count=Count('id'))
+            }
+            
+            stock_alerts = {
+                row['store']: row for row in Product.objects.filter(
+                    store__in=stores, is_active=True
+                ).values('store').annotate(
+                    low_stock=Count('id', filter=Q(stock_quantity__lte=F('low_stock_alert'), stock_quantity__gt=0)),
+                    out_stock=Count('id', filter=Q(stock_quantity__lte=0))
+                )
+            }
+
+            store_data = []
+            for s in stores:
+                s_agg = sales_aggs.get(s.id, {})
+                s_stock = stock_alerts.get(s.id, {})
+                store_data.append({
+                    'store':        s,
+                    'bill_count':   bill_counts.get(s.id, 0),
+                    'total_sales':  s_agg.get('sales') or 0,
+                    'total_profit': s_agg.get('profit') or 0,
+                    'low_stock':    s_stock.get('low_stock') or 0,
+                    'out_stock':    s_stock.get('out_stock') or 0,
+                })
+            
+            global_agg = SaleItem.objects.filter(
+                sale__store__in=stores,
+                sale__created_at__range=(t_start, t_end)
+            ).aggregate(sales=Sum('total_amount'), profit=Sum('profit'))
+            
+            total_bills = Sale.objects.filter(
+                store__in=stores,
+                created_at__range=(t_start, t_end)
             ).count()
-            out_stock = Product.objects.filter(store=s, is_active=True, stock_quantity__lte=0).count()
-            store_data.append({
-                'store':        s,
-                'bill_count':   today_sales.count(),
-                'total_sales':  agg['sales']  or 0,
-                'total_profit': agg['profit'] or 0,
-                'low_stock':    low_stock,
-                'out_stock':    out_stock,
-            })
-        global_agg = SaleItem.objects.filter(
-            sale__created_at__range=(t_start, t_end)
-        ).aggregate(sales=Sum('total_amount'), profit=Sum('profit'))
+            
+            cached_data = {
+                'store_data':    store_data,
+                'global_sales':  global_agg['sales']  or 0,
+                'global_profit': global_agg['profit'] or 0,
+                'total_stores':  stores.count(),
+                'total_bills':   total_bills,
+            }
+            cache.set(cache_key, cached_data, timeout=30)
+        else:
+            # When loading from cache, 'stores' queryset might not be defined if needed elsewhere
+            # but here it's only used for urgent_credits filtering.
+            if profile.is_superadmin:
+                stores = Store.objects.filter(is_active=True)
+            else:
+                stores = Store.objects.filter(id__in=AreaManagerStore.objects.filter(manager__user=request.user).values('store_id'))
+
         urgent_credits = CreditRecord.objects.filter(is_paid=False, due_date__lte=target_date)
         if not profile.is_superadmin:
             urgent_credits = urgent_credits.filter(sale__store__in=stores)
         urgent_credits = urgent_credits.order_by('due_date')
         
-        from django.core.cache import cache
         recent_otps = cache.get(f'am_dashboard_otps_{profile.id}', []) if profile.role in ('AREAMANAGER', 'WHOLESALE_EXEC') else []
         
         ctx = {
             'profile':       profile,
-            'store_data':    store_data,
-            'global_sales':  global_agg['sales']  or 0,
-            'global_profit': global_agg['profit'] or 0,
-            'total_stores':  stores.count(),
-            'total_bills':   Sale.objects.filter(created_at__range=(t_start, t_end)).count(),
+            'store_data':    cached_data['store_data'],
+            'global_sales':  cached_data['global_sales'],
+            'global_profit': cached_data['global_profit'],
+            'total_stores':  cached_data['total_stores'],
+            'total_bills':   cached_data['total_bills'],
             'urgent_credits': urgent_credits,
             'recent_otps':   recent_otps,
             'unread_notifications': Notification.objects.filter(user=request.user, is_read=False).order_by('-created_at')[:10]
@@ -288,21 +333,41 @@ def dashboard(request):
             messages.error(request, 'You are not assigned to any store.')
             return render(request, 'pos/no_store.html', {'profile': profile})
 
-        today_items = SaleItem.objects.filter(
-            sale__store=store, sale__created_at__range=(t_start, t_end))
-        agg = today_items.aggregate(
-            sales=Sum('total_amount'), cost=Sum('total_cost'), profit=Sum('profit'))
+        cache_key = f'pos_dashboard_store_{store.id}_{today.isoformat()}'
+        cached_data = cache.get(cache_key)
+        
+        if not cached_data:
+            today_items = SaleItem.objects.filter(
+                sale__store=store, sale__created_at__range=(t_start, t_end))
+            agg = today_items.aggregate(
+                sales=Sum('total_amount'), cost=Sum('total_cost'), profit=Sum('profit'))
 
-        week_start_dt, _ = date_range(today - timedelta(days=6))
-        week_items = SaleItem.objects.filter(
-            sale__store=store, sale__created_at__gte=week_start_dt)
-        week_agg = week_items.aggregate(sales=Sum('total_amount'), profit=Sum('profit'))
+            week_start_dt, _ = date_range(today - timedelta(days=6))
+            week_items = SaleItem.objects.filter(
+                sale__store=store, sale__created_at__gte=week_start_dt)
+            week_agg = week_items.aggregate(sales=Sum('total_amount'), profit=Sum('profit'))
 
+            low_count = Product.objects.filter(
+                store=store, is_active=True,
+                stock_quantity__lte=F('low_stock_alert'), stock_quantity__gt=0).count()
+            out_count = Product.objects.filter(store=store, is_active=True, stock_quantity__lte=0).count()
+            
+            cached_data = {
+                'today_sales':  agg['sales']       or 0,
+                'today_cost':   agg['cost']        or 0,
+                'today_profit': agg['profit']      or 0,
+                'today_bills':  Sale.objects.filter(store=store, created_at__range=(t_start, t_end)).count(),
+                'week_sales':   week_agg['sales']  or 0,
+                'week_profit':  week_agg['profit'] or 0,
+                'low_count':    low_count,
+                'out_count':    out_count,
+            }
+            cache.set(cache_key, cached_data, timeout=30)
+
+        recent_sales = Sale.objects.filter(store=store).order_by('-created_at')[:8]
         low_products = Product.objects.filter(
             store=store, is_active=True,
-            stock_quantity__lte=F('low_stock_alert'), stock_quantity__gt=0)
-        out_products = Product.objects.filter(store=store, is_active=True, stock_quantity__lte=0)
-        recent_sales = Sale.objects.filter(store=store).order_by('-created_at')[:8]
+            stock_quantity__lte=F('low_stock_alert'), stock_quantity__gt=0)[:5]
 
         urgent_credits = CreditRecord.objects.filter(
             Q(sale__store=store) | Q(is_external=True),
@@ -312,15 +377,15 @@ def dashboard(request):
         ctx = {
             'profile':      profile,
             'store':        store,
-            'today_sales':  agg['sales']       or 0,
-            'today_cost':   agg['cost']        or 0,
-            'today_profit': agg['profit']      or 0,
-            'today_bills':  Sale.objects.filter(store=store, created_at__range=(t_start, t_end)).count(),
-            'week_sales':   week_agg['sales']  or 0,
-            'week_profit':  week_agg['profit'] or 0,
-            'low_products': low_products[:5],
-            'low_count':    low_products.count(),
-            'out_count':    out_products.count(),
+            'today_sales':  cached_data['today_sales'],
+            'today_cost':   cached_data['today_cost'],
+            'today_profit': cached_data['today_profit'],
+            'today_bills':  cached_data['today_bills'],
+            'week_sales':   cached_data['week_sales'],
+            'week_profit':  cached_data['week_profit'],
+            'low_products': low_products,
+            'low_count':    cached_data['low_count'],
+            'out_count':    cached_data['out_count'],
             'recent_sales': recent_sales,
             'urgent_credits': urgent_credits,
             'unread_notifications': Notification.objects.filter(user=request.user, is_read=False).order_by('-created_at')[:10]

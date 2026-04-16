@@ -102,7 +102,7 @@ class Product(models.Model):
     store            = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='products')
     name             = models.CharField(max_length=200)
     barcode          = models.CharField(max_length=100, blank=True, help_text='Barcode number')
-    category         = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default='FISH')
+    category         = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default='FISH', db_index=True)
 
     # Separate pricing for retail vs wholesale
     retail_price     = models.DecimalField(max_digits=10, decimal_places=2,
@@ -115,7 +115,7 @@ class Product(models.Model):
     stock_quantity   = models.DecimalField(max_digits=10, decimal_places=3, default=0)
     low_stock_alert  = models.DecimalField(max_digits=10, decimal_places=3, default=5,
                                            help_text="Alert threshold in kg")
-    is_active        = models.BooleanField(default=True)
+    is_active        = models.BooleanField(default=True, db_index=True)
     created_at       = models.DateTimeField(auto_now_add=True)
     updated_at       = models.DateTimeField(auto_now=True)
 
@@ -152,7 +152,7 @@ class Sale(models.Model):
 
     store          = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='sales')
     bill_number    = models.CharField(max_length=60, unique=True)
-    bill_type      = models.CharField(max_length=20, choices=BILL_TYPE_CHOICES, default='RETAIL')
+    bill_type      = models.CharField(max_length=20, choices=BILL_TYPE_CHOICES, default='RETAIL', db_index=True)
 
     # Customer (required for wholesale)
     wholesale_customer = models.ForeignKey('WholesaleCustomer', on_delete=models.SET_NULL, null=True, blank=True, related_name='sales')
@@ -173,7 +173,7 @@ class Sale(models.Model):
     payment_mode   = models.CharField(max_length=20, choices=PAYMENT_MODE_CHOICES, default='CASH')
     notes          = models.TextField(blank=True)
     created_by     = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
-    created_at     = models.DateTimeField(default=timezone.now)
+    created_at     = models.DateTimeField(default=timezone.now, db_index=True)
 
     def __str__(self):
         return f"#{self.bill_number} [{self.store.name}] ₹{self.grand_total}"
@@ -230,7 +230,7 @@ class StockLog(models.Model):
     balance     = models.DecimalField(max_digits=10, decimal_places=3)
     reference   = models.CharField(max_length=100, blank=True)   # bill number or note
     created_by  = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
-    created_at  = models.DateTimeField(default=timezone.now)
+    created_at  = models.DateTimeField(default=timezone.now, db_index=True)
 
     class Meta:
         ordering = ['-created_at']
@@ -269,11 +269,11 @@ class Expense(models.Model):
 
     store        = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='expenses')
     category     = models.CharField(max_length=20, choices=CATEGORY_CHOICES)
-    expense_type = models.CharField(max_length=10, choices=EXPENSE_TYPE_CHOICES, default='DAILY')
+    expense_type = models.CharField(max_length=10, choices=EXPENSE_TYPE_CHOICES, default='DAILY', db_index=True)
     description  = models.CharField(max_length=300)
     amount       = models.DecimalField(max_digits=12, decimal_places=2)
     bill_pdf     = models.FileField(upload_to=expense_upload_path, blank=True, null=True)
-    date         = models.DateField(default=timezone.now)
+    date         = models.DateField(default=timezone.now, db_index=True)
     created_by   = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
     created_at   = models.DateTimeField(auto_now_add=True)
 
@@ -332,7 +332,7 @@ class WholesaleApproval(models.Model):
     bill_snapshot = models.JSONField(default=dict)   # snapshot at time of approval
     approved_by_name = models.CharField(max_length=200)  # denormalized for history
     created_by   = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='+')
-    created_at   = models.DateTimeField(auto_now_add=True)
+    created_at   = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
         ordering = ['-created_at']
@@ -465,8 +465,8 @@ class CreditRecord(models.Model):
     is_external = models.BooleanField(default=False)
     external_reference = models.CharField(max_length=150, blank=True)
     
-    due_date   = models.DateField()
-    is_paid    = models.BooleanField(default=False)
+    due_date   = models.DateField(db_index=True)
+    is_paid    = models.BooleanField(default=False, db_index=True)
     paid_on    = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -486,7 +486,7 @@ class CreditRecord(models.Model):
 # ─────────────────────────────────────────────────────────────────────────────
 class StoreSession(models.Model):
     store      = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='sessions')
-    date       = models.DateField(default=timezone.now)
+    date       = models.DateField(default=timezone.now, db_index=True)
     opened_at  = models.DateTimeField(null=True, blank=True)
     closed_at  = models.DateTimeField(null=True, blank=True)
     opened_by  = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='opened_sessions')
@@ -685,7 +685,7 @@ class Notification(models.Model):
     level       = models.CharField(max_length=10, choices=LEVEL_CHOICES, default='INFO')
     is_read     = models.BooleanField(default=False)
     link        = models.CharField(max_length=255, blank=True, null=True)
-    created_at  = models.DateTimeField(auto_now_add=True)
+    created_at  = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
         ordering = ['-created_at']

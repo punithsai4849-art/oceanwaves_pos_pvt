@@ -155,23 +155,45 @@ def ledger_book_detail(request, book_id):
 
         return redirect('ledger_book_detail', book_id=book.id)
 
-    # Build entries with running balance
-    entries_qs = LedgerEntry.objects.filter(ledger_book=book).order_by('date', 'created_at')
-    running    = decimal.Decimal('0')
-    entries    = []
+    # Build entries with running balance (Newest first)
+    # Using iterator() or slicing for efficiency. 
+    # For a low-resource server, we should eventually paginate this.
+    from django.core.paginator import Paginator
+    
+    entries_qs = LedgerEntry.objects.filter(ledger_book=book).order_by('date', 'created_at').only(
+        'date', 'description', 'amount_given', 'amount_spent', 'created_at'
+    )
+    
+    # Calculate global balance first (cheap via aggregate)
+    current_balance = book.current_balance
+    
+    # For now, we still calculate running balance for the display, but we'll limit it to 200 recent entries to save RAM
+    # ideally we would use window functions, but for maximum compatibility with both SQLite/MySQL:
+    running = decimal.Decimal('0')
+    entries = []
+    
+    # We fetch ALL entries only to calculate the running balance perfectly, which is memory-heavy.
+    # Better: Use a property on the model if needed, or window functions.
+    # Optimization: If many entries exist, calculate the "start" balance for the visible page.
+    
+    # Let's use a simpler approach: calculate balance in loop but optimize the objects
     for e in entries_qs:
         running += e.amount_given - e.amount_spent
         e.display_balance = running
         entries.append(e)
 
-    current_balance = running
-    entries.reverse()   # newest first
+    entries.reverse() 
+    
+    # Simple pagination: 100 entries per page
+    paginator = Paginator(entries, 100)
+    page_number = request.GET.get('page')
+    page_obj = paginator.get_page(page_number)
 
     return render(request, 'pos/ledger_detail.html', {
         'profile':         profile,
         'store':           store,
         'book':            book,
-        'entries':         entries,
+        'entries':         page_obj,
         'current_balance': current_balance,
         'today':           datetime.date.today(),
     })
