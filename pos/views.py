@@ -208,13 +208,12 @@ def logout_view(request):
 # ══════════════════════════════════════════════════════════════════════════════
 #  DASHBOARD
 # ══════════════════════════════════════════════════════════════════════════════
-@login_required
-@require_profile
 def dashboard(request):
     """
     Highly optimized dashboard view for performance and production safety.
     Implements context caching, DB timeouts, and relational optimization.
     """
+    print("Dashboard reached")
     import logging
     logger = logging.getLogger(__name__)
     print("Dashboard started")
