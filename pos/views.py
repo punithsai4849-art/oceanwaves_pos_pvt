@@ -7,7 +7,7 @@ from django.http import JsonResponse, HttpResponse
 from django.utils import timezone
 from django.db.models import Sum, Count, Q, F
 from django.views.decorators.http import require_POST
-import json, decimal, threading
+import json, decimal
 from datetime import date, timedelta
 
 from .models import Store, UserProfile, Product, Sale, SaleItem, StockLog, Expense, AreaManagerStore, WholesaleApproval, Employee, PaySlip, StockRequest, Notification
@@ -164,26 +164,21 @@ def login_view(request):
             log_event(request, 'LOGIN_SUCCESS', f'username={user.username}')
 
             # ── Record Attendance ──────────────────────────────────────────
-            import threading
             import datetime as dt
             from .models import LoginAttendance
             profile_obj = get_profile(user)
             now_local   = timezone.localtime(timezone.now())
 
-            def _record_and_notify():
-                try:
-                    LoginAttendance.objects.create(
-                        store      = profile_obj.store,
-                        user       = user,
-                        login_date = now_local.date(),
-                        login_time = now_local.time(),
-                        ip_address = ip[:50],
-                    )
-                except Exception:
-                    pass
-                # TODO: re-add admin login notification email with better logic
-
-            threading.Thread(target=_record_and_notify, daemon=True).start()
+            try:
+                LoginAttendance.objects.create(
+                    store      = profile_obj.store,
+                    user       = user,
+                    login_date = now_local.date(),
+                    login_time = now_local.time(),
+                    ip_address = ip[:50],
+                )
+            except Exception:
+                pass
             # ──────────────────────────────────────────────────────────────
 
             return redirect('dashboard')
@@ -217,7 +212,7 @@ def dashboard(request):
 
     t_start, t_end = today_range()
     
-    # credit reminder moved to background job (cron), do not run inside request
+    # credit reminder moved to background job (cron). Do not execute inside request.
 
     from .models import CreditRecord
     from datetime import timedelta
@@ -2044,14 +2039,11 @@ def wholesale_request_otp(request):
             f"— OCEANWAVES POS System\n"
         )
 
-        import threading
         from django.core.mail import send_mail
-        def send_otp_email(sub, msg, frm, to):
-            try:
-                send_mail(sub, msg, frm, [to], fail_silently=False)
-            except Exception:
-                pass
-        threading.Thread(target=send_otp_email, args=(subject, message, settings.DEFAULT_FROM_EMAIL, email), daemon=True).start()
+        try:
+            send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [email], fail_silently=False)
+        except Exception:
+            pass
 
         return JsonResponse({'success': True, 'msg': f'OTP sent to Manager & visible on Manager Dashboard'})
             
