@@ -211,13 +211,23 @@ def dashboard(request):
     today = date.today()
     cache_key = f"dashboard_{request.user.id}_{today.isoformat()}"
 
+    profile = get_profile(request.user)
+    if not profile:
+        return redirect('login')
+        
+    if profile.is_superadmin:
+        template_name = 'pos/dashboard_admin.html'
+    elif profile.is_area_manager:
+        template_name = 'pos/am_dashboard.html'
+    else:
+        template_name = 'pos/dashboard_store.html'
+
     try:
         cached_data = cache.get(cache_key)
         if cached_data:
-            return render(request, 'pos/dashboard.html', cached_data)
+            return render(request, template_name, cached_data)
     except Exception:
         pass
-
     try:
         from .models import Store, SaleItem, CreditRecord
 
@@ -255,11 +265,11 @@ def dashboard(request):
         except Exception:
             pass
 
-        return render(request, 'pos/dashboard.html', context)
+        return render(request, template_name, context)
 
     except Exception as e:
         logger.error(f"Dashboard error: {e}")
-        return render(request, 'pos/dashboard.html', {})
+        return render(request, template_name, {})
 
 
 
