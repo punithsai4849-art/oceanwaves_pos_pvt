@@ -1310,6 +1310,9 @@ def reports(request):
         pass
 
     if not cached_data:
+        qs_filter = {'sale__created_at__range': (r_start, r_end)}
+        if store:
+            qs_filter['sale__store'] = store
         items_qs = SaleItem.objects.filter(**qs_filter).select_related('sale', 'sale__store', 'product')
         # Pre-evaluate items and aggregation
         items = list(items_qs[:500])  # Cap at 500 for safety on low RAM
