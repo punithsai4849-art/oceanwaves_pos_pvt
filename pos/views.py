@@ -209,13 +209,62 @@ def logout_view(request):
 #  DASHBOARD
 # ══════════════════════════════════════════════════════════════════════════════
 def dashboard(request):
-    print("STEP 1")
+    if not request.user.is_authenticated:
+        return redirect('/admin/login/')
 
-    from datetime import date
     today = date.today()
-    print("STEP 2")
+    cache_key = f"dashboard_{request.user.id}_{today.isoformat()}"
 
-    return HttpResponse("Reached basic dashboard ✅")
+    try:
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            return render(request, 'pos/dashboard.html', cached_data)
+    except Exception:
+        pass
+
+    try:
+        # -------- BASIC SAFE DATA --------
+        from .models import Store, SaleItem, CreditRecord
+
+        stores = Store.objects.filter(is_active=True)
+
+        # -------- AGGREGATES (FAST - DB LEVEL) --------
+        total_sales = SaleItem.objects.aggregate(
+            total=Sum('total_amount')
+        )['total'] or 0
+
+        total_orders = SaleItem.objects.count()
+
+        # -------- LIGHTWEIGHT LISTS ONLY --------
+        recent_sales = list(
+            SaleItem.objects.select_related('sale__store')
+            .order_by('-id')
+            .values('id', 'total_amount')[:10]
+        )
+
+        urgent_credits = list(
+            CreditRecord.objects.select_related('sale__store')
+            .order_by('-id')
+            .values('id')[:10]
+        )
+
+        context = {
+            'total_sales': total_sales,
+            'total_orders': total_orders,
+            'recent_sales': recent_sales,
+            'urgent_credits': urgent_credits,
+        }
+
+        try:
+            cache.set(cache_key, context, timeout=60)
+        except Exception:
+            pass
+
+        return render(request, 'pos/dashboard.html', context)
+
+    except Exception as e:
+        logger.error(f"Dashboard error: {e}")
+        return render(request, 'pos/dashboard.html', {})
 
 
 
