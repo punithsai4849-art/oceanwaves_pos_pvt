@@ -215,19 +215,20 @@ def dashboard(request):
     if not profile:
         return redirect('login')
         
-    if profile.is_superadmin:
+    # Route based on role
+    # All roles that manage stores (Admin, SubAdmin, AM, Wholesale Exec) use the Master Dashboard
+    if profile.is_superadmin or profile.is_area_manager or profile.is_subadmin:
         template_name = 'pos/dashboard_admin.html'
-    elif profile.is_area_manager:
-        template_name = 'pos/am_dashboard.html'
     else:
         template_name = 'pos/dashboard_store.html'
 
-    try:
-        cached_data = cache.get(cache_key)
-        if cached_data:
-            return render(request, template_name, cached_data)
-    except Exception:
-        pass
+    # Skip cache check for now to ensure the new design shows up immediately
+    # try:
+    #     cached_data = cache.get(cache_key)
+    #     if cached_data:
+    #         return render(request, template_name, cached_data)
+    # except Exception:
+    #     pass
     try:
         from .models import Store, Sale, SaleItem, CreditRecord
         tr_start, tr_end = today_range()
@@ -241,8 +242,8 @@ def dashboard(request):
         sales_agg = SaleItem.objects.filter(sale__created_at__gte=tr_start, sale__created_at__lte=tr_end).values('sale__store_id').annotate(t_sales=Sum('total_amount'), t_profit=Sum('profit'))
         sales_map = {item['sale__store_id']: {'s': item['t_sales'], 'p': item['t_profit']} for item in sales_agg}
 
-        if profile.is_superadmin or profile.is_area_manager:
-            if profile.is_superadmin:
+        if profile.is_superadmin or profile.is_area_manager or profile.is_subadmin:
+            if profile.is_superadmin or profile.is_subadmin:
                 stores = Store.objects.filter(is_active=True)
             else:
                 from .models import AreaManagerStore
