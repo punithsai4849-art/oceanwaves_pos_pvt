@@ -218,7 +218,8 @@ def dashboard(request):
     try:
         cached_data = cache.get(cache_key)
         if cached_data:
-            return render(request, 'pos/dashboard.html', cached_data)
+            from django.http import JsonResponse
+            return JsonResponse(cached_data)
     except Exception:
         pass
 
@@ -260,11 +261,13 @@ def dashboard(request):
         except Exception:
             pass
 
-        return render(request, 'pos/dashboard.html', context)
+        from django.http import JsonResponse
+        return JsonResponse(context)
 
     except Exception as e:
         logger.error(f"Dashboard error: {e}")
-        return render(request, 'pos/dashboard.html', {})
+        from django.http import JsonResponse
+        return JsonResponse({})
 
 
 
