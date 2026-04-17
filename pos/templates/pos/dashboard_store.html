@@ -3,15 +3,22 @@
 {% block title %}Dashboard — {{ store.name }}{% endblock %}
 {% block content %}
 <div class="pg">
-  <div class="pg-header">
-    <div>
-      <h1><i class="fas fa-store-alt"></i> {{ store.name }}</h1>
-      <p>{{ store.address }} {% if store.phone %}· {{ store.phone }}{% endif %}</p>
+  <div class="dash-greeting">
+    <div class="dg-left">
+      <h2>Hello, {{ request.user.first_name|default:request.user.username }}! 👋</h2>
+      <p><i class="fas fa-store-alt"></i> <strong>{{ store.name }}</strong> {% if store.phone %}· {{ store.phone }}{% endif %}</p>
     </div>
-    {% if profile.is_owner %}
-    <a href="{% url 'billing' %}" class="btn-primary btn-lg"><i class="fas fa-plus"></i> New Bill</a>
-    {% endif %}
+    <div class="dg-right">
+      <div class="live-clock" id="liveClock">--:--:--</div>
+      <div class="live-date">{% now "d F y" %}</div>
+    </div>
   </div>
+  
+  {% if profile.is_owner %}
+  <div style="display:flex; justify-content: flex-end; margin-bottom: 20px;">
+    <a href="{% url 'billing' %}" class="btn-primary btn-lg"><i class="fas fa-plus"></i> New Bill</a>
+  </div>
+  {% endif %}
 
   <!-- Priority Alerts -->
   {% if unread_notifications %}
@@ -166,5 +173,17 @@
       window.location.reload();
     });
   }
+
+  function updateClock() {
+    const clock = document.getElementById('liveClock');
+    if (!clock) return;
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, '0');
+    const mm = String(now.getMinutes()).padStart(2, '0');
+    const ss = String(now.getSeconds()).padStart(2, '0');
+    clock.textContent = `${hh}:${mm}:${ss}`;
+  }
+  setInterval(updateClock, 1000);
+  updateClock();
 </script>
 {% endblock %}

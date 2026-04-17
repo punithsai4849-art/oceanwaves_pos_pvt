@@ -229,36 +229,84 @@ def dashboard(request):
     except Exception:
         pass
     try:
-        from .models import Store, SaleItem, CreditRecord
+        from .models import Store, Sale, SaleItem, CreditRecord
+        tr_start, tr_end = today_range()
 
-        # -------- LIGHTWEIGHT QUERIES --------
-        total_sales = SaleItem.objects.aggregate(
-            total=Sum('total_amount')
-        )['total'] or 0
+        context = {}
+        
+        # Helper lists to avoid N+1 queries using grouped annotations
+        bill_counts = Sale.objects.filter(created_at__gte=tr_start, created_at__lte=tr_end).values('store_id').annotate(c=Count('id'))
+        bill_map = {item['store_id']: item['c'] for item in bill_counts}
 
-        total_orders = SaleItem.objects.count()
+        sales_agg = SaleItem.objects.filter(sale__created_at__gte=tr_start, sale__created_at__lte=tr_end).values('sale__store_id').annotate(t_sales=Sum('total_amount'), t_profit=Sum('profit'))
+        sales_map = {item['sale__store_id']: {'s': item['t_sales'], 'p': item['t_profit']} for item in sales_agg}
 
-        # -------- SMALL DATA ONLY --------
-        recent_sales = list(
-            SaleItem.objects
-            .select_related('sale__store')
-            .order_by('-id')
-            .values('id', 'total_amount')[:10]
-        )
+        if profile.is_superadmin or profile.is_area_manager:
+            if profile.is_superadmin:
+                stores = Store.objects.filter(is_active=True)
+            else:
+                from .models import AreaManagerStore
+                my_store_ids = list(AreaManagerStore.objects.filter(manager=profile).values_list('store_id', flat=True))
+                stores = Store.objects.filter(id__in=my_store_ids, is_active=True)
 
-        urgent_credits = list(
-            CreditRecord.objects
-            .select_related('sale__store')
-            .order_by('-id')
-            .values('id')[:10]
-        )
+            context['total_stores'] = stores.count()
+            
+            # Global Aggregates
+            total_b = total_s = total_p = 0
+            
+            store_data = []
+            for s in stores:
+                b_c = bill_map.get(s.id, 0)
+                s_s = sales_map.get(s.id, {}).get('s', 0) or 0
+                s_p = sales_map.get(s.id, {}).get('p', 0) or 0
+                
+                total_b += b_c
+                total_s += s_s
+                total_p += s_p
+                
+                store_data.append({
+                    'store': s,
+                    'bill_count': b_c,
+                    'total_sales': s_s,
+                    'total_profit': s_p,
+                    'out_stock': 0,
+                    'low_stock': 0,
+                })
+                
+            context['total_bills'] = total_b
+            context['global_sales'] = total_s
+            context['global_profit'] = total_p
+            context['store_data'] = store_data
 
-        context = {
-            'total_sales': total_sales,
-            'total_orders': total_orders,
-            'recent_sales': recent_sales,
-            'urgent_credits': urgent_credits,
-        }
+        else:
+            # Store-Specific Dashboard
+            store = profile.store
+            s_s = sales_map.get(store.id, {}).get('s', 0) or 0
+            s_p = sales_map.get(store.id, {}).get('p', 0) or 0
+            b_c = bill_map.get(store.id, 0)
+            
+            context['today_bills'] = b_c
+            context['today_sales'] = s_s
+            context['today_profit'] = s_p
+            context['today_cost'] = s_s - s_p
+            
+            # Additional values for UI sync
+            context['total_bills'] = b_c
+            context['global_sales'] = s_s
+            context['global_profit'] = s_p
+            context['total_stores'] = 1
+            
+            context['store'] = store
+
+        # Urgent credits for everyone
+        q = CreditRecord.objects.select_related('customer', 'sale__store').filter(total_due__gt=0).order_by('due_date')
+        if not profile.is_superadmin:
+            if profile.is_area_manager:
+                q = q.filter(sale__store_id__in=my_store_ids)
+            else:
+                q = q.filter(sale__store=profile.store)
+
+        context['urgent_credits'] = q[:10]
 
         try:
             cache.set(cache_key, context, timeout=60)
