@@ -133,12 +133,9 @@ SECURE_BROWSER_XSS_FILTER = True
 _use_https = config('SECURE_SSL_REDIRECT', default=False, cast=bool)
 
 SESSION_COOKIE_SECURE = _use_https
-SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_SAMESITE = 'Lax' if _use_https else None
 
 CSRF_COOKIE_SECURE = _use_https
-CSRF_COOKIE_HTTPONLY = True
-CSRF_COOKIE_SAMESITE = 'Lax'
 
 SECURE_REFERRER_POLICY = 'same-origin'
 
