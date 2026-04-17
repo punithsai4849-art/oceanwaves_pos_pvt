@@ -300,7 +300,7 @@ def dashboard(request):
             context['store'] = store
 
         # Urgent credits for everyone
-        q = CreditRecord.objects.select_related('customer', 'sale__store').filter(total_due__gt=0).order_by('due_date')
+        q = CreditRecord.objects.select_related('customer', 'sale__store').filter(is_paid=False).order_by('due_date')
         if not profile.is_superadmin:
             if profile.is_area_manager:
                 q = q.filter(sale__store_id__in=my_store_ids)
