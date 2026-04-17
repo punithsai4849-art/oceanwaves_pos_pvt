@@ -213,6 +213,13 @@ def dashboard(request):
     Highly optimized dashboard view for performance and production safety.
     Implements context caching, DB timeouts, and relational optimization.
     """
+    if not request.user.is_authenticated:
+        return redirect('/admin/login/')
+        
+    profile = get_profile(request.user)
+    if not profile:
+        return redirect('/admin/login/')
+
     print("Dashboard reached")
     import logging
     logger = logging.getLogger(__name__)
@@ -225,7 +232,6 @@ def dashboard(request):
         logger.error(f"DB connection error: {e}")
         print("DB connection failed")
 
-    profile = get_profile(request.user)
     today   = date.today()
     t_start, t_end = today_range()
     
