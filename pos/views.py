@@ -215,6 +215,17 @@ def dashboard(request):
     Highly optimized dashboard view for performance and production safety.
     Implements context caching, DB timeouts, and relational optimization.
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    print("Dashboard started")
+    
+    from django.db import connection
+    try:
+        connection.ensure_connection()
+    except Exception as e:
+        logger.error(f"DB connection error: {e}")
+        print("DB connection failed")
+
     profile = get_profile(request.user)
     today   = date.today()
     t_start, t_end = today_range()
@@ -228,6 +239,7 @@ def dashboard(request):
     target_date = today + timedelta(days=2)
     ctx = {'profile': profile}
     
+    print("Before logic")
     try:
         # DB Safety Timeout (MySQL only)
         if connection.vendor == 'mysql':
@@ -348,6 +360,7 @@ def dashboard(request):
                 'recent_otps':   recent_otps,
                 'unread_notifications': list(Notification.objects.filter(user=request.user, is_read=False).order_by('-created_at')[:10])
             })
+            print("Before return admin")
             return render(request, 'pos/dashboard_admin.html', ctx)
 
         else:
@@ -426,15 +439,14 @@ def dashboard(request):
                 'urgent_credits': urgent_credits,
                 'unread_notifications': list(Notification.objects.filter(user=request.user, is_read=False).order_by('-created_at')[:10])
             })
+            print("Before return store")
             return render(request, 'pos/dashboard_store.html', ctx)
 
     except Exception as e:
         logger.error(f"Dashboard error: {e}")
-        # Guaranteed fallback response
-        if profile.is_superadmin or profile.role in ('AREAMANAGER', 'WHOLESALE_EXEC'):
-            return render(request, 'pos/dashboard_admin.html', ctx)
-        else:
-            return render(request, 'pos/dashboard_store.html', ctx)
+        print("Dashboard failed")
+        from django.http import HttpResponse
+        return HttpResponse("Dashboard Error")
 
 
 
