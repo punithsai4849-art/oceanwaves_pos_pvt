@@ -4,13 +4,15 @@ from django.http import HttpResponse
 from django.conf import settings
 from django.conf.urls.static import static
 
+from django.shortcuts import redirect
+
 def home(request):
-    return HttpResponse("App Live ✅")
+    return redirect('dashboard')
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('', home),   # IMPORTANT: root route
-    path('', include('pos.urls')),  # keep your app routes
+    path('', home),
+    path('', include('pos.urls')),
 ]
 
 if settings.DEBUG:
