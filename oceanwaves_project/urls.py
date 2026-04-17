@@ -1,13 +1,16 @@
 from django.contrib import admin
 from django.urls import path, include
+from django.http import HttpResponse
 from django.conf import settings
 from django.conf.urls.static import static
-from django.shortcuts import redirect
+
+def home(request):
+    return HttpResponse("App Live ✅")
 
 urlpatterns = [
-    path('owpos-control-panel/', admin.site.urls),
-    path('', lambda r: redirect('dashboard'), name='home'),
-    path('', include('pos.urls')),
+    path('admin/', admin.site.urls),
+    path('', home),   # IMPORTANT: root route
+    path('', include('pos.urls')),  # keep your app routes
 ]
 
 if settings.DEBUG:
