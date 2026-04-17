@@ -93,7 +93,10 @@ def daily_report_view(request):
         # DailyStockSnapshot for opening/closing
         snapshots_list = list(DailyStockSnapshot.objects.filter(
             store=store, date=report_date
-        ).select_related('product'))
+        ).select_related('product').only(
+            'product_id', 'product__name', 'product__cost_price', 'product__retail_price',
+            'opening_qty', 'closing_qty', 'sold_qty', 'purchased_qty'
+        ))
 
         product_rows = []
         if snapshots_list:
@@ -162,7 +165,8 @@ def daily_report_view(request):
             'profit_percentage': profit_percentage,
         }
         try:
-            cache.set(cache_key, cached_data, timeout=60)
+            timeout = 3600 if report_date < datetime.date.today() else 60
+            cache.set(cache_key, cached_data, timeout=timeout)
         except Exception:
             pass
 
@@ -305,7 +309,10 @@ def monthly_report_view(request):
             'profit_percentage': profit_percentage,
         }
         try:
-            cache.set(cache_key, cached_data, timeout=60)
+            _today = datetime.date.today()
+            _is_history = (year < _today.year) or (year == _today.year and month < _today.month)
+            timeout = 3600 if _is_history else 60
+            cache.set(cache_key, cached_data, timeout=timeout)
         except Exception:
             pass
 

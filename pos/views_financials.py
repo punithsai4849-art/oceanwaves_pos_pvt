@@ -167,18 +167,17 @@ def ledger_book_detail(request, book_id):
     # Calculate global balance first (cheap via aggregate)
     current_balance = book.current_balance
     
-    # For now, we still calculate running balance for the display, but we'll limit it to 200 recent entries to save RAM
-    # ideally we would use window functions, but for maximum compatibility with both SQLite/MySQL:
+    # Optimization: Calculate running balance only for the most recent 500 entries to save RAM
+    # on this low-resource server (1GB RAM).
+    total_count = entries_qs.count()
+    if total_count > 500:
+        entries_qs = entries_qs[total_count-500:]
+        
     running = decimal.Decimal('0')
     entries = []
     
-    # We fetch ALL entries only to calculate the running balance perfectly, which is memory-heavy.
-    # Better: Use a property on the model if needed, or window functions.
-    # Optimization: If many entries exist, calculate the "start" balance for the visible page.
-    
-    # Let's use a simpler approach: calculate balance in loop but optimize the objects
     for e in entries_qs:
-        running += e.amount_given - e.amount_spent
+        running += (e.amount_given or 0) - (e.amount_spent or 0)
         e.display_balance = running
         entries.append(e)
 

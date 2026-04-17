@@ -97,8 +97,8 @@ def create_notification(user, title, message, level='INFO', link=None):
         Notification.objects.create(
             user=user, title=title, message=message, level=level, link=link
         )
-    except Exception as e:
-        print(f"Notification creation error: {e}")
+    except Exception:
+        pass
 
 def send_alert_email(subject, message, recipient_list):
     """Sends an email alert to the specified recipients."""
@@ -112,8 +112,8 @@ def send_alert_email(subject, message, recipient_list):
             recipient_list,
             fail_silently=True,
         )
-    except Exception as e:
-        print(f"Email error: {e}")
+    except Exception:
+        pass
 
 def notify_area_managers(store, title, message, level='INFO', link=None, include_admin=False):
     """Notifies all area managers assigned to a store, and optionally the global admin."""
@@ -157,15 +157,12 @@ def login_view(request):
             return render(request, 'pos/login.html')
 
         user = authenticate(request, username=username, password=password)
-        print(f"[DEBUG] Login attempt: username={username}, password={password}, authenticated={user}")
         if user:
-            print(f"[DEBUG] Profile exists: {bool(get_profile(user))}")
-            if get_profile(user):
-                print(f"[DEBUG] has_expired: {get_profile(user).has_expired}")
-        if user and get_profile(user) and not get_profile(user).has_expired:
-            cache.delete(lock_key)
-            login(request, user)
-            log_event(request, 'LOGIN_SUCCESS', f'username={user.username}')
+            profile_obj = get_profile(user)
+            if profile_obj and not profile_obj.has_expired:
+                cache.delete(lock_key)
+                login(request, user)
+                log_event(request, 'LOGIN_SUCCESS', f'username={user.username}')
 
             # ── Record Attendance ──────────────────────────────────────────
             import datetime as dt
@@ -208,10 +205,9 @@ def logout_view(request):
 # ══════════════════════════════════════════════════════════════════════════════
 #  DASHBOARD
 # ══════════════════════════════════════════════════════════════════════════════
+@login_required
+@require_profile
 def dashboard(request):
-    if not request.user.is_authenticated:
-        return redirect('/admin/login/')
-
     today = date.today()
     cache_key = f"dashboard_{request.user.id}_{today.isoformat()}"
 
@@ -955,50 +951,58 @@ def bill_print(request, bill_id):
 #  INVENTORY
 # ══════════════════════════════════════════════════════════════════════════════
 @login_required
+@login_required
 @require_profile
 def inventory(request):
     profile  = get_profile(request.user)
     store    = profile.store
-    managed_stores = None
+    managed_stores = []
 
-    # Area Managers have no direct store; they manage stores via AreaManagerStore
+    # Area Managers manage stores via AreaManagerStore
     if profile.is_area_manager and not store:
-        managed_stores = AreaManagerStore.objects.filter(
+        managed_stores_qs = AreaManagerStore.objects.filter(
             manager=profile
-        ).select_related('store').order_by('store__name')
+        ).select_related('store').only('store__id', 'store__name').order_by('store__name')
+        
+        managed_stores = list(managed_stores_qs)
 
         store_id = request.GET.get('store_id')
         if store_id:
-            ams_entry = managed_stores.filter(store_id=store_id).first()
+            ams_entry = next((ams for ams in managed_stores if str(ams.store_id) == str(store_id)), None)
             if ams_entry:
                 store = ams_entry.store
-        if not store and managed_stores.exists():
-            store = managed_stores.first().store
+        if not store and managed_stores:
+            store = managed_stores[0].store
 
     if not store:
         messages.error(request, 'Not assigned to any store.')
         return redirect('dashboard')
 
     cache_key = f'pos_inventory_{store.id}'
-    cached_data = None
-    try:
-        cached_data = cache.get(cache_key)
-    except Exception:
-        pass
+    cached_data = cache.get(cache_key)
 
     if not cached_data:
-        # Evaluate QuerySets immediately
-        products = list(Product.objects.filter(store=store, is_active=True))
-        managed_stores_list = list(managed_stores) if managed_stores else None
+        # Evaluate QuerySets with field limiting
+        products = list(Product.objects.filter(store=store, is_active=True).select_related('store').only(
+            'store_id', 'name', 'retail_price', 'wholesale_price', 'cost_price', 
+            'stock_quantity', 'low_stock_alert', 'is_active'
+        ))
         
         cached_data = {
             'products': products,
-            'managed_stores': managed_stores_list,
+            'managed_stores': managed_stores,
         }
         try:
-            cache.set(cache_key, cached_data, timeout=30)
+            cache.set(cache_key, cached_data, timeout=60)
         except Exception:
             pass
+
+    return render(request, 'pos/inventory.html', {
+        'profile': profile,
+        'store': store,
+        'products': cached_data['products'],
+        'managed_stores': cached_data['managed_stores'],
+    })
 
     return render(request, 'pos/inventory.html', {
         'products':       cached_data['products'],
