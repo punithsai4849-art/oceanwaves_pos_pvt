@@ -8,22 +8,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = config('SECRET_KEY')
 DEBUG = config('DEBUG', default=False, cast=bool)
 
-ALLOWED_HOSTS = [
-    '140.245.234.58',
-    'localhost',
-    '127.0.0.1'
-]
+ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='127.0.0.1,localhost').split(',')
 
-CSRF_TRUSTED_ORIGINS = [
-    'http://140.245.234.58',
-    'https://*.ngrok-free.app',
-    'https://*.ngrok-free.dev',
-    'https://*.ngrok.io',
-    'https://*.ngrok.app',
-    'https://*.ngrok.dev',
-    'https://*.railway.app',
-    'https://*.up.railway.app',
-]
+CSRF_TRUSTED_ORIGINS = config('CSRF_TRUSTED_ORIGINS', default='http://127.0.0.1,http://localhost').split(',')
 
 # 🔧 Apps
 INSTALLED_APPS = [
