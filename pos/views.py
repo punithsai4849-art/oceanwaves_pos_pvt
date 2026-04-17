@@ -218,33 +218,31 @@ def dashboard(request):
     try:
         cached_data = cache.get(cache_key)
         if cached_data:
-            from django.http import JsonResponse
-            return JsonResponse(cached_data)
+            return render(request, 'pos/dashboard.html', cached_data)
     except Exception:
         pass
 
     try:
-        # -------- BASIC SAFE DATA --------
         from .models import Store, SaleItem, CreditRecord
 
-        stores = Store.objects.filter(is_active=True)
-
-        # -------- AGGREGATES (FAST - DB LEVEL) --------
+        # -------- LIGHTWEIGHT QUERIES --------
         total_sales = SaleItem.objects.aggregate(
             total=Sum('total_amount')
         )['total'] or 0
 
         total_orders = SaleItem.objects.count()
 
-        # -------- LIGHTWEIGHT LISTS ONLY --------
+        # -------- SMALL DATA ONLY --------
         recent_sales = list(
-            SaleItem.objects.select_related('sale__store')
+            SaleItem.objects
+            .select_related('sale__store')
             .order_by('-id')
             .values('id', 'total_amount')[:10]
         )
 
         urgent_credits = list(
-            CreditRecord.objects.select_related('sale__store')
+            CreditRecord.objects
+            .select_related('sale__store')
             .order_by('-id')
             .values('id')[:10]
         )
@@ -261,13 +259,11 @@ def dashboard(request):
         except Exception:
             pass
 
-        from django.http import JsonResponse
-        return JsonResponse(context)
+        return render(request, 'pos/dashboard.html', context)
 
     except Exception as e:
         logger.error(f"Dashboard error: {e}")
-        from django.http import JsonResponse
-        return JsonResponse({})
+        return render(request, 'pos/dashboard.html', {})
 
 
 
