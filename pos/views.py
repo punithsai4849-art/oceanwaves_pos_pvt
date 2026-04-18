@@ -387,6 +387,7 @@ def store_edit(request, store_id):
     store = get_object_or_404(Store, id=store_id)
     if request.method == 'POST':
         store.name            = request.POST.get('name', store.name).strip()
+        store.code            = request.POST.get('code', store.code).strip().upper() if request.POST.get('code') else store.code
         store.address         = request.POST.get('address', store.address).strip()
         store.phone           = request.POST.get('phone', store.phone).strip()
         store.whatsapp_number = request.POST.get('whatsapp_number', store.whatsapp_number).strip()
@@ -882,7 +883,10 @@ def save_bill(request):
 
             from .models import WholesaleCustomer, CreditRecord
             if cname:
-                wc = WholesaleCustomer.objects.filter(name__iexact=cname).first()
+                # Lookup by Name OR Customer Code
+                wc = WholesaleCustomer.objects.filter(
+                    Q(name__iexact=cname) | Q(customer_code__iexact=cname)
+                ).first()
                 if payment == 'CREDIT':
                     if not wc:
                         wc = WholesaleCustomer.objects.create(
@@ -893,8 +897,8 @@ def save_bill(request):
                     else:
                         if not wc.is_credit_enabled:
                             return JsonResponse({'success': False, 'error': f'Credit is disabled for {cname}.'})
-                        if CreditRecord.objects.filter(customer=wc, is_paid=False).exists():
-                            return JsonResponse({'success': False, 'error': f'{cname} has active unpaid credits. Settle them first.'})
+                        if wc.has_unpaid_credit:
+                            return JsonResponse({'success': False, 'error': f'{cname} has an outstanding credit balance of ₹{wc.balance}. Please settle it before making new credit sales.'})
                 
                 sale.wholesale_customer = wc
         else:
@@ -2311,8 +2315,17 @@ def wholesale_customer_add(request):
         if WholesaleCustomer.objects.filter(name__iexact=name).exists():
             messages.error(request, 'Customer with this name already exists.')
         else:
-            WholesaleCustomer.objects.create(
+            store = profile.store
+            # Superadmins or Managers might select a specific store for the customer
+            store_id = request.POST.get('store_id')
+            if store_id and (profile.is_superadmin or profile.is_wholesale_exec):
+                from .models import Store
+                store = Store.objects.filter(id=store_id).first()
+
+            wc = WholesaleCustomer.objects.create(
                 name=name,
+                store=store,
+                customer_code=request.POST.get('customer_code', '').strip(),
                 phone=request.POST.get('phone', ''),
                 email=request.POST.get('email', ''),
                 gst=request.POST.get('gst', ''),
@@ -2320,7 +2333,7 @@ def wholesale_customer_add(request):
                 is_credit_enabled=request.POST.get('is_credit_enabled') == 'on',
                 created_by=request.user
             )
-            messages.success(request, 'Customer added.')
+            messages.success(request, f'Customer {wc.name} added with code {wc.customer_code}.')
     return redirect('wholesale_customers')
 
 @login_required
@@ -2333,12 +2346,22 @@ def wholesale_customer_edit(request, cid):
         
     c = get_object_or_404(WholesaleCustomer, id=cid)
     if request.method == 'POST':
-        c.name = request.POST.get('name', c.name)
-        c.phone = request.POST.get('phone', c.phone)
-        c.email = request.POST.get('email', c.email)
-        c.gst = request.POST.get('gst', c.gst)
+        c.name          = request.POST.get('name', c.name).strip()
+        c.customer_code = request.POST.get('customer_code', c.customer_code).strip() or c.customer_code
+        c.phone         = request.POST.get('phone', c.phone)
+        c.email         = request.POST.get('email', c.email)
+        c.gst           = request.POST.get('gst', c.gst)
         c.credit_duration_days = int(request.POST.get('credit_duration_days', c.credit_duration_days))
-        c.is_credit_enabled = request.POST.get('is_credit_enabled') == 'on'
+        c.is_credit_enabled    = request.POST.get('is_credit_enabled') == 'on'
+        
+        # Allow superadmins/execs to move customers between branches
+        store_id = request.POST.get('store_id')
+        if store_id and (profile.is_superadmin or profile.is_wholesale_exec):
+             from .models import Store
+             new_store = Store.objects.filter(id=store_id).first()
+             if new_store:
+                 c.store = new_store
+
         c.save()
         messages.success(request, 'Customer updated.')
     return redirect('wholesale_customers')

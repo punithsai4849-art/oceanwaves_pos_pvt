@@ -21,6 +21,7 @@ class Store(models.Model):
     email            = models.EmailField(blank=True)
     gstin            = models.CharField(max_length=20, blank=True, verbose_name="GSTIN")
     upi_id           = models.CharField(max_length=50, blank=True, help_text='Store UPI ID for receiving payments')
+    code             = models.CharField(max_length=15, blank=True, null=True, unique=True, help_text='Short branch code, e.g., TNK')
     is_active        = models.BooleanField(default=True)
     created_at       = models.DateTimeField(auto_now_add=True)
 
@@ -445,6 +446,8 @@ class WholesaleCustomer(models.Model):
     email                 = models.EmailField(blank=True)
     gst                   = models.CharField(max_length=20, blank=True)
     address               = models.TextField(blank=True, help_text='Delivery / billing address')
+    store                 = models.ForeignKey(Store, on_delete=models.SET_NULL, null=True, blank=True, related_name='wholesale_customers')
+    customer_code         = models.CharField(max_length=50, blank=True, unique=True, db_index=True)
     is_credit_enabled     = models.BooleanField(default=True)
     credit_duration_days  = models.PositiveIntegerField(default=7, help_text="Default days to pay")
     created_by            = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='+')
@@ -479,7 +482,29 @@ class WholesaleCustomer(models.Model):
         return first.created_at if first else None
 
     def __str__(self):
-        return f"{self.name} - Bal: ₹{self.balance}"
+        return f"{self.name} ({self.customer_code}) - Bal: ₹{self.balance}"
+
+    def save(self, *args, **kwargs):
+        if not self.customer_code:
+            # Logic for OW-BRANCH-001
+            branch_pfx = (self.store.code or "MAIN").upper() if self.store else "GLOBAL"
+            # Get next sequential number for this branch
+            from django.db.models import Max
+            from django.db import transaction
+            
+            with transaction.atomic():
+                last_code = WholesaleCustomer.objects.filter(customer_code__startswith=f"OW-{branch_pfx}-").aggregate(Max('customer_code'))['customer_code__max']
+                if last_code:
+                    try:
+                        last_num = int(last_code.split('-')[-1])
+                        next_num = last_num + 1
+                    except (ValueError, IndexError):
+                        next_num = 1
+                else:
+                    next_num = 1
+                
+                self.customer_code = f"OW-{branch_pfx}-{str(next_num).zfill(3)}"
+        super().save(*args, **kwargs)
 
 class CreditRecord(models.Model):
     customer   = models.ForeignKey(WholesaleCustomer, on_delete=models.CASCADE, related_name='credit_records')

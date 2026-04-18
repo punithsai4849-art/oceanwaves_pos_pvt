@@ -15,7 +15,7 @@
         <img src="{% static 'pos/images/logo.jpg' %}" alt="">
       </div>
       <div class="sc-info">
-        <h3>{{ s.name }}</h3>
+        <h3>{{ s.name }} <small style="color:#64748b;">[{{ s.code|default:"—" }}]</small></h3>
         {% if s.address %}<p><i class="fas fa-map-marker-alt"></i> {{ s.address }}</p>{% endif %}
         {% if s.phone   %}<p><i class="fas fa-phone"></i> {{ s.phone }}</p>{% endif %}
         {% if s.whatsapp_number %}<p style="color:#25D366;"><i class="fab fa-whatsapp"></i> {{ s.whatsapp_number }}</p>{% endif %}
@@ -28,7 +28,7 @@
       </div>
       <div class="sc-actions">
         <a href="{% url 'store_detail' s.id %}" class="btn-sm blue"><i class="fas fa-chart-bar"></i> Report</a>
-        <button class="btn-sm grey" onclick="openEditStore({{ s.id }}, '{{ s.name|escapejs }}', '{{ s.address|escapejs }}', '{{ s.phone|escapejs }}', '{{ s.whatsapp_number|escapejs }}', '{{ s.email|escapejs }}', '{{ s.gstin|escapejs }}', '{{ s.upi_id|escapejs }}', {{ s.is_active|lower }})">
+        <button class="btn-sm grey" onclick="openEditStore({{ s.id }}, '{{ s.name|escapejs }}', '{{ s.code|escapejs }}', '{{ s.address|escapejs }}', '{{ s.phone|escapejs }}', '{{ s.whatsapp_number|escapejs }}', '{{ s.email|escapejs }}', '{{ s.gstin|escapejs }}', '{{ s.upi_id|escapejs }}', {{ s.is_active|lower }})">
           <i class="fas fa-edit"></i> Edit
         </button>
       </div>
@@ -48,7 +48,10 @@
     <div class="mhdr"><h3><i class="fas fa-plus-circle"></i> Create New Store</h3><button onclick="closeModal('addStoreModal')">×</button></div>
     <form method="POST" action="{% url 'store_create' %}" class="mform">
       {% csrf_token %}
-      <div class="fg"><label>Store Name *</label><input type="text" name="name" required placeholder="e.g. OCEANWAVES - Banjara Hills"></div>
+      <div class="frow">
+        <div class="fg"><label>Store Name *</label><input type="text" name="name" required placeholder="e.g. OCEANWAVES - Banjara Hills"></div>
+        <div class="fg" style="flex:0 0 150px;"><label>Branch Code *</label><input type="text" name="code" required placeholder="e.g. TNK" style="text-transform:uppercase;"></div>
+      </div>
       <div class="fg"><label>Address</label><textarea name="address" rows="2" placeholder="Full store address"></textarea></div>
       <div class="frow">
       <div class="fg"><label>Phone</label><input type="text" name="phone" placeholder="Contact number"></div>
@@ -70,7 +73,10 @@
     <div class="mhdr"><h3><i class="fas fa-edit"></i> Edit Store</h3><button onclick="closeModal('editStoreModal')">×</button></div>
     <form id="editStoreForm" method="POST" class="mform">
       {% csrf_token %}
-      <div class="fg"><label>Store Name *</label><input type="text" name="name" id="esName" required></div>
+      <div class="frow">
+        <div class="fg"><label>Store Name *</label><input type="text" name="name" id="esName" required></div>
+        <div class="fg" style="flex:0 0 150px;"><label>Branch Code *</label><input type="text" name="code" id="esCode" required style="text-transform:uppercase;"></div>
+      </div>
       <div class="fg"><label>Address</label><textarea name="address" id="esAddress" rows="2"></textarea></div>
       <div class="frow">
         <div class="fg"><label>Phone</label><input type="text" name="phone" id="esPhone"></div>
@@ -92,8 +98,9 @@
 {% endblock %}
 {% block extra_js %}
 <script>
-function openEditStore(id, name, addr, phone, whatsapp, email, gstin, upi_id, active) {
+function openEditStore(id, name, code, addr, phone, whatsapp, email, gstin, upi_id, active) {
   document.getElementById('esName').value = name;
+  document.getElementById('esCode').value = code;
   document.getElementById('esAddress').value = addr;
   document.getElementById('esPhone').value = phone;
   document.getElementById('esWhatsapp').value = whatsapp;

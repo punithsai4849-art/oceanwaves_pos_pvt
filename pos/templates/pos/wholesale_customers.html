@@ -28,9 +28,10 @@
     <table class="data-table">
       <thead>
         <tr>
+          <th>Code</th>
           <th>Name</th>
           <th>Contact</th>
-          <th>GST</th>
+          <th>Home Branch</th>
           <th>Credit Enabled</th>
           <th>Actions</th>
         </tr>
@@ -38,9 +39,10 @@
       <tbody>
       {% for c in customers %}
       <tr>
-        <td><strong>{{ c.name }}</strong></td>
+        <td><span class="pill pill-blue" style="font-family:monospace;">{{ c.customer_code }}</span></td>
+        <td><strong>{{ c.name }}</strong><br><small style="color:#64748b;">GST: {{ c.gst|default:"—" }}</small></td>
         <td>{{ c.phone }}<br><small>{{ c.email }}</small></td>
-        <td>{{ c.gst|default:"—" }}</td>
+        <td>{{ c.store.name|default:"Global" }}</td>
         <td>
           {% if c.is_credit_enabled %}
           <span class="pill pill-green">Yes ({{ c.credit_duration_days }} days)</span>
@@ -56,6 +58,8 @@
               data-phone="{{ c.phone|escapejs }}"
               data-email="{{ c.email|escapejs }}"
               data-gst="{{ c.gst|escapejs }}"
+              data-code="{{ c.customer_code|escapejs }}"
+              data-store="{{ c.store_id|default:'' }}"
               data-duration="{{ c.credit_duration_days }}"
               data-credit="{{ c.is_credit_enabled|yesno:'true,false' }}"
               onclick="openEditCustomer(this)">
@@ -81,7 +85,19 @@
     <form method="POST" action="{% url 'wholesale_customer_add' %}" class="mform">
       {% csrf_token %}
       <div class="frow">
+      <div class="frow">
         <div class="fg"><label>Name *</label><input type="text" name="name" required></div>
+        <div class="fg"><label>Customer Code (Optional)</label><input type="text" name="customer_code" placeholder="Leave blank to auto-generate"></div>
+      </div>
+      <div class="frow">
+        <div class="fg"><label>Home Store / Branch (Optional)</label>
+          <select name="store_id">
+            <option value="">Select Branch</option>
+            {% for s in stores %}
+            <option value="{{ s.id }}">{{ s.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
         <div class="fg"><label>Phone</label><input type="text" name="phone"></div>
       </div>
       <div class="frow">
@@ -108,7 +124,19 @@
     <form id="editCustomerForm" method="POST" class="mform">
       {% csrf_token %}
       <div class="frow">
+      <div class="frow">
         <div class="fg"><label>Name *</label><input type="text" name="name" id="ecName" required></div>
+        <div class="fg"><label>Customer Code</label><input type="text" name="customer_code" id="ecCode"></div>
+      </div>
+      <div class="frow">
+        <div class="fg"><label>Home Store / Branch</label>
+          <select name="store_id" id="ecStore">
+            <option value="">Select Branch</option>
+            {% for s in stores %}
+            <option value="{{ s.id }}">{{ s.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
         <div class="fg"><label>Phone</label><input type="text" name="phone" id="ecPhone"></div>
       </div>
       <div class="frow">
@@ -133,6 +161,8 @@
 function openEditCustomer(btn) {
   const d = btn.dataset;
   document.getElementById('ecName').value = d.name || '';
+  document.getElementById('ecCode').value = d.code || '';
+  document.getElementById('ecStore').value = d.store || '';
   document.getElementById('ecPhone').value = d.phone || '';
   document.getElementById('ecEmail').value = d.email || '';
   document.getElementById('ecGst').value = d.gst || '';
