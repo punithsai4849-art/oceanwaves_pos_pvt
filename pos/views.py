@@ -2424,11 +2424,16 @@ def customer_credit_detail(request, customer_id):
     
     # Sort helper to handle date vs datetime comparison
     import datetime
+    from django.utils import timezone
     def get_sort_dt(entry):
         val = entry['date']
         if isinstance(val, datetime.datetime):
             return val
-        return datetime.datetime.combine(val, datetime.time.min)
+        # Convert date to aware datetime at midnight
+        dt = datetime.datetime.combine(val, datetime.time.min)
+        if timezone.is_aware(records[0].created_at if records else timezone.now()):
+             return timezone.make_aware(dt)
+        return dt
 
     ledger.sort(key=get_sort_dt, reverse=True)
 
