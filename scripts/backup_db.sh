@@ -29,10 +29,16 @@ fi
 
 echo "--- Backup Started: $(date) ---"
 
-# 2. Dump Database
-echo "Creating database dump..."
-# Adding --no-tablespaces to avoid permission errors on newer MySQL versions
-mysqldump --no-tablespaces -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" > "$BACKUP_DIR/$DB_BACKUP_NAME"
+# 2. Perform Backup based on Database Type
+if [ "$DB_USE_MYSQL" = "True" ] || [ "$DB_USE_MYSQL" = "true" ]; then
+    echo "MySQL detected. Creating database dump..."
+    # Adding --no-tablespaces to avoid permission errors on newer MySQL versions
+    mysqldump --no-tablespaces -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" > "$BACKUP_DIR/$DB_BACKUP_NAME"
+else
+    echo "SQLite detected. Copying db.sqlite3..."
+    DB_BACKUP_NAME="db.sqlite3"
+    cp "$PROJECT_ROOT/db.sqlite3" "$BACKUP_DIR/$DB_BACKUP_NAME"
+fi
 
 if [ $? -ne 0 ]; then
     echo "ERROR: mysqldump failed!"
