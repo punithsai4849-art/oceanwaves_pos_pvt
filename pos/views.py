@@ -2422,7 +2422,15 @@ def customer_credit_detail(request, customer_id):
             'items': []
         })
     
-    ledger.sort(key=lambda x: x['date'], reverse=True)
+    # Sort helper to handle date vs datetime comparison
+    import datetime
+    def get_sort_dt(entry):
+        val = entry['date']
+        if isinstance(val, datetime.datetime):
+            return val
+        return datetime.datetime.combine(val, datetime.time.min)
+
+    ledger.sort(key=get_sort_dt, reverse=True)
 
     return render(request, 'pos/customer_credit_detail.html', {
         'customer': customer,
