@@ -2059,7 +2059,10 @@ def wholesale_verify_otp(request):
         wc = None
         from .models import WholesaleCustomer, CreditRecord
         if cname:
-            wc = WholesaleCustomer.objects.filter(name__iexact=cname).first()
+            # Lookup by Name OR Customer Code
+            wc = WholesaleCustomer.objects.filter(
+                Q(name__iexact=cname) | Q(customer_code__iexact=cname)
+            ).first()
             if payment == 'CREDIT':
                 if not wc:
                     wc = WholesaleCustomer.objects.create(
@@ -2070,8 +2073,8 @@ def wholesale_verify_otp(request):
                 else:
                     if not wc.is_credit_enabled:
                         return JsonResponse({'success': False, 'error': f'Credit is disabled for {cname}.'})
-                    if CreditRecord.objects.filter(customer=wc, is_paid=False).exists():
-                        return JsonResponse({'success': False, 'error': f'{cname} has active unpaid credits. Settle them first.'})
+                    if wc.has_unpaid_credit:
+                        return JsonResponse({'success': False, 'error': f'{cname} has an outstanding credit balance of ₹{wc.balance}. Please settle it before making new credit sales.'})
             sale.wholesale_customer = wc
 
         subtotal      = sum(q * sp for _, q, sp in validated)
