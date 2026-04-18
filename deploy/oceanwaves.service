@@ -1,0 +1,29 @@
+[Unit]
+Description=Gunicorn instance to serve Oceanwaves POS
+After=network.target
+
+[Service]
+# User and Group usually 'ubuntu' and 'www-data' on Ubuntu servers
+User=ubuntu
+Group=www-data
+
+# Adjust this to the actual directory of your app on the server
+WorkingDirectory=/home/ubuntu/ocnwvs
+
+# Make sure this points to the virtualenv python
+Environment="PATH=/home/ubuntu/ocnwvs/venv/bin"
+EnvironmentFile=/home/ubuntu/ocnwvs/.env
+
+# Start Gunicorn using the configuration file
+ExecStart=/home/ubuntu/ocnwvs/venv/bin/gunicorn --config gunicorn.conf.py oceanwaves_project.wsgi:application
+
+# Restart the service automatically if it crashes
+Restart=always
+RestartSec=5
+
+# Logging
+StandardOutput=append:/home/ubuntu/ocnwvs/logs/gunicorn.access.log
+StandardError=append:/home/ubuntu/ocnwvs/logs/gunicorn.error.log
+
+[Install]
+WantedBy=multi-user.target
