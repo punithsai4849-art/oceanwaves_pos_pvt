@@ -1037,37 +1037,18 @@ def inventory(request):
         messages.error(request, 'Not assigned to any store.')
         return redirect('dashboard')
 
-    cache_key = f'pos_inventory_{store.id}'
-    cached_data = cache.get(cache_key)
-
-    if not cached_data:
-        # Evaluate QuerySets with field limiting
-        products = list(Product.objects.filter(store=store, is_active=True).select_related('store').only(
-            'store_id', 'name', 'retail_price', 'wholesale_price', 'cost_price', 
-            'stock_quantity', 'low_stock_alert', 'is_active'
-        ))
-        
-        cached_data = {
-            'products': products,
-            'managed_stores': managed_stores,
-        }
-        try:
-            cache.set(cache_key, cached_data, timeout=60)
-        except Exception:
-            pass
+    # We evaluate QuerySets with field limiting for performance, but we do not cache
+    # to ensure newly added products appear immediately.
+    products = list(Product.objects.filter(store=store, is_active=True).select_related('store').only(
+        'store_id', 'name', 'retail_price', 'wholesale_price', 'cost_price', 
+        'stock_quantity', 'low_stock_alert', 'is_active'
+    ))
 
     return render(request, 'pos/inventory.html', {
         'profile': profile,
         'store': store,
-        'products': cached_data['products'],
-        'managed_stores': cached_data['managed_stores'],
-    })
-
-    return render(request, 'pos/inventory.html', {
-        'products':       cached_data['products'],
-        'store':          store,
-        'profile':        profile,
-        'managed_stores': cached_data['managed_stores'],
+        'products': products,
+        'managed_stores': managed_stores,
     })
 
 
