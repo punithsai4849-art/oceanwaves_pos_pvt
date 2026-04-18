@@ -86,7 +86,7 @@
         {% for entry in ledger %}
         <tr>
           <td>{{ forloop.counter }}</td>
-          <td>{{ entry.date|date:"d-m-Y" }}<br><small style="color:#94a3b8;">{{ entry.date|date:"h:i A" }}</small></td>
+          <td>{{ entry.date|date:"d-m-Y" }}{% if entry.type == 'CREDIT' %}<br><small style="color:#94a3b8;">{{ entry.date|date:"h:i A" }}</small>{% endif %}</td>
           <td>
             <span class="type-badge {% if entry.type == 'CREDIT' %}type-credit{% else %}type-payment{% endif %}">
               {{ entry.type }}
