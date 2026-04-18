@@ -31,7 +31,8 @@ echo "--- Backup Started: $(date) ---"
 
 # 2. Dump Database
 echo "Creating database dump..."
-mysqldump -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" > "$BACKUP_DIR/$DB_BACKUP_NAME"
+# Adding --no-tablespaces to avoid permission errors on newer MySQL versions
+mysqldump --no-tablespaces -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" > "$BACKUP_DIR/$DB_BACKUP_NAME"
 
 if [ $? -ne 0 ]; then
     echo "ERROR: mysqldump failed!"
