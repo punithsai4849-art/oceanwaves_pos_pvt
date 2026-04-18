@@ -1,63 +1,61 @@
 #!/bin/bash
 
 # ==============================================================================
-# OCEANWAVES DATABASE BACKUP SCRIPT
+# OCEANWAVES ENCRYPTED BACKUP SCRIPT
 # ==============================================================================
-# This script dumps MySQL, compresses it, and syncs to Google Drive via rclone.
+# 1. Dumps MySQL Database
+# 2. Encrypts the backup with password (Oceanwaves@202619)
+# 3. Sends the encrypted file to Gmail
 # ==============================================================================
 
-# 1. Load Environment Variables from .env
-# Adjust path to your .env file
-ENV_FILE="/home/ubuntu/ocnwvs/.env"
-if [ -f "$ENV_FILE" ]; then
-    export $(grep -v '^#' "$ENV_FILE" | xargs)
-else
-    echo ".env file not found at $ENV_FILE"
-    exit 1
-fi
-
-# 2. Settings
-BACKUP_DIR="/home/ubuntu/ocnwvs/backups"
+# Configuration
+PROJECT_ROOT="/home/ubuntu/ocnwvs"
+BACKUP_DIR="$PROJECT_ROOT/backups"
 TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 DB_BACKUP_NAME="oceanwaves_db_$TIMESTAMP.sql"
-ZIP_NAME="oceanwaves_backup_$TIMESTAMP.tar.gz"
-RCLONE_REMOTE="gdrive"  # This must match your rclone config name
-RCLONE_DEST="Oceanwaves_Backups" # Folder on your Google Drive
+ZIP_NAME="oceanwaves_backup_$TIMESTAMP.zip"
+PASSWORD="Oceanwaves@202619"
 
-# 3. Create backup directory if it doesn't exist
+# Ensure backup directory exists
 mkdir -p "$BACKUP_DIR"
 
-echo "--- Starting Backup at $(date) ---"
-
-# 4. Perform MySQL Dump
-echo "Dumping database: $DB_NAME..."
-mysqldump -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" > "$BACKUP_DIR/$DB_BACKUP_NAME"
-
-if [ $? -eq 0 ]; then
-    echo "Dump successful."
+# 1. Load Environment Variables
+if [ -f "$PROJECT_ROOT/.env" ]; then
+    export $(grep -v '^#' "$PROJECT_ROOT/.env" | xargs)
 else
-    echo "Error: Database dump failed!"
+    echo ".env file not found!"
     exit 1
 fi
 
-# 5. Compress the backup
-echo "Compressing backup..."
-cd "$BACKUP_DIR"
-tar -czf "$ZIP_NAME" "$DB_BACKUP_NAME"
-rm "$DB_BACKUP_NAME"
+echo "--- Backup Started: $(date) ---"
 
-# 6. Upload to Google Drive via rclone
-echo "Syncing to Google Drive..."
-rclone copy "$BACKUP_DIR/$ZIP_NAME" "$RCLONE_REMOTE:$RCLONE_DEST"
+# 2. Dump Database
+echo "Creating database dump..."
+mysqldump -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" > "$BACKUP_DIR/$DB_BACKUP_NAME"
 
-if [ $? -eq 0 ]; then
-    echo "Successfully uploaded to Google Drive."
-else
-    echo "Error: Upload to Google Drive failed! (Is rclone configured?)"
+if [ $? -ne 0 ]; then
+    echo "ERROR: mysqldump failed!"
+    exit 1
 fi
 
-# 7. Cleanup local backups older than 30 days
-echo "Cleaning up local files older than 30 days..."
-find "$BACKUP_DIR" -type f -name "*.tar.gz" -mtime +30 -delete
+# 3. Encrypt and Zip
+echo "Encrypting backup with password..."
+cd "$BACKUP_DIR"
+# Use zip with password (-P)
+zip -P "$PASSWORD" "$ZIP_NAME" "$DB_BACKUP_NAME"
+rm "$DB_BACKUP_NAME"
 
-echo "--- Backup process completed at $(date) ---"
+# 4. Use Python to send the email
+echo "Sending email to $EMAIL_HOST_USER..."
+python3 "$PROJECT_ROOT/scripts/send_backup.py" "$BACKUP_DIR/$ZIP_NAME"
+
+if [ $? -eq 0 ]; then
+    echo "SUCCESS: Backup sent to email."
+else
+    echo "ERROR: Failed to send email."
+fi
+
+# 5. Cleanup local backups older than 28 days (keep 4 weeks)
+find "$BACKUP_DIR" -type f -name "*.zip" -mtime +28 -delete
+
+echo "--- Backup Completed: $(date) ---"
