@@ -446,16 +446,40 @@ class WholesaleCustomer(models.Model):
     gst                   = models.CharField(max_length=20, blank=True)
     address               = models.TextField(blank=True, help_text='Delivery / billing address')
     is_credit_enabled     = models.BooleanField(default=True)
-    credit_duration_days  = models.PositiveIntegerField(default=7, help_text="Minimum 7, Max 30 days")
+    credit_duration_days  = models.PositiveIntegerField(default=7, help_text="Default days to pay")
     created_by            = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='+')
     created_at            = models.DateTimeField(auto_now_add=True)
     
     @property
+    def total_credit_amount(self):
+        records = self.credit_records.all()
+        return sum(r.total_due for r in records)
+
+    @property
+    def total_paid_amount(self):
+        payments = self.payments.all()
+        return sum(p.amount for p in payments)
+
+    @property
+    def balance(self):
+        return self.total_credit_amount - self.total_paid_amount
+
+    @property
     def has_unpaid_credit(self):
-        return self.credit_records.filter(is_paid=False).exists()
+        return self.balance > 0
+
+    @property
+    def last_credit_date(self):
+        last = self.credit_records.order_by('-created_at').first()
+        return last.created_at if last else None
+
+    @property
+    def credit_since(self):
+        first = self.credit_records.order_by('created_at').first()
+        return first.created_at if first else None
 
     def __str__(self):
-        return f"{self.name} - Credit: {'Yes' if self.is_credit_enabled else 'No'}"
+        return f"{self.name} - Bal: ₹{self.balance}"
 
 class CreditRecord(models.Model):
     customer   = models.ForeignKey(WholesaleCustomer, on_delete=models.CASCADE, related_name='credit_records')
@@ -479,6 +503,27 @@ class CreditRecord(models.Model):
     def __str__(self):
         ref = self.sale.bill_number if self.sale else self.external_reference
         return f"Credit for {self.customer.name} - #{ref} (Paid: {self.is_paid})"
+
+class CreditPayment(models.Model):
+    PAYMENT_MODE_CHOICES = [
+        ('CASH',   'Cash'),
+        ('UPI',    'UPI'),
+        ('ONLINE', 'Online'),
+        ('CARD',   'Card'),
+    ]
+    customer     = models.ForeignKey(WholesaleCustomer, on_delete=models.CASCADE, related_name='payments')
+    amount       = models.DecimalField(max_digits=12, decimal_places=2)
+    payment_mode = models.CharField(max_length=20, choices=PAYMENT_MODE_CHOICES, default='CASH')
+    date         = models.DateField(default=timezone.now)
+    note         = models.CharField(max_length=255, blank=True)
+    created_by   = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='+')
+    created_at   = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-date', '-created_at']
+
+    def __str__(self):
+        return f"Payment ₹{self.amount} - {self.customer.name} ({self.date})"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

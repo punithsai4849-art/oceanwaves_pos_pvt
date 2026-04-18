@@ -94,6 +94,8 @@ urlpatterns = [
     path('credits/',                                views.credits_list,                 name='credits_list'),
     path('credits/add-external/',                   views.credit_add_external,          name='credit_add_external'),
     path('credits/<int:cid>/pay/',                  views.credit_pay,                   name='credit_pay'),
+    path('credits/customer/<int:customer_id>/',     views.customer_credit_detail,       name='customer_credit_detail'),
+    path('credits/customer/<int:customer_id>/pay/', views.record_credit_payment,        name='record_credit_payment'),
 
     # Ledger
     path('ledger/',                                       views_financials.ledger_books_list,  name='ledger_view'),

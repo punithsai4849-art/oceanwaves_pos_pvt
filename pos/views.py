@@ -2286,13 +2286,11 @@ def approval_history(request):
 # ─────────────────────────────────────────────────────────────────────────────
 #  WHOLESALE CUSTOMERS & CREDITS
 # ─────────────────────────────────────────────────────────────────────────────
-from .models import WholesaleCustomer, CreditRecord
-
 @login_required
 @require_profile
 def wholesale_customers(request):
     profile = get_profile(request.user)
-    from .models import Store, AreaManagerStore
+    from .models import Store, AreaManagerStore, WholesaleCustomer
     
     # Get accessible stores
     stores = Store.objects.filter(is_active=True).order_by('name')
@@ -2317,6 +2315,7 @@ def wholesale_customers(request):
         'stores': stores,
         'store_filter': store_filter
     })
+
 
 @login_required
 @require_profile
@@ -2367,8 +2366,10 @@ def wholesale_customer_edit(request, cid):
 @require_profile
 def credits_list(request):
     profile = get_profile(request.user)
-    from .models import Store, AreaManagerStore
-    records = CreditRecord.objects.select_related('customer', 'sale', 'sale__store').order_by('is_paid', 'due_date')
+    from .models import Store, AreaManagerStore, WholesaleCustomer
+    
+    # Summary of balances per customer
+    customers = WholesaleCustomer.objects.filter(is_credit_enabled=True).prefetch_related('credit_records', 'payments')
     
     stores = Store.objects.filter(is_active=True).order_by('name')
     
@@ -2377,48 +2378,102 @@ def credits_list(request):
     elif profile.is_area_manager or profile.is_wholesale_exec:
         accessible_store_ids = AreaManagerStore.objects.filter(manager=profile).values_list('store_id', flat=True)
         stores = Store.objects.filter(id__in=accessible_store_ids).order_by('name')
-        records = records.filter(Q(sale__store_id__in=accessible_store_ids) | Q(is_external=True))
+        customers = customers.filter(credit_records__sale__store_id__in=accessible_store_ids).distinct()
     elif profile.store:
         stores = stores.filter(id=profile.store.id)
-        records = records.filter(Q(sale__store=profile.store) | Q(is_external=True))
+        customers = customers.filter(credit_records__sale__store=profile.store).distinct()
     else:
         stores = Store.objects.none()
-        records = records.none()
+        customers = WholesaleCustomer.objects.none()
 
-    store_filter = request.GET.get('store_filter')
-    if store_filter:
-        if store_filter.isdigit():
-            records = records.filter(sale__store_id=store_filter)
-        elif store_filter == 'external':
-            records = records.filter(is_external=True)
+    q_search = request.GET.get('q', '').strip()
+    if q_search:
+        customers = customers.filter(Q(name__icontains=q_search) | Q(phone__icontains=q_search))
 
-    cache_key = f'pos_credits_{profile.id}_{store_filter or "all"}'
-    cached_data = None
-    try:
-        cached_data = cache.get(cache_key)
-    except Exception:
-        pass
+    customer_summaries = []
+    for c in customers:
+        balance = c.balance
+        if balance != 0 or c.credit_records.exists():
+            customer_summaries.append({
+                'customer': c,
+                'last_credit': c.last_credit_date,
+                'total_amount': c.total_credit_amount,
+                'balance': balance,
+            })
 
-    if not cached_data:
-        # Evaluate QuerySets immediately
-        records_list = list(records[:300]) # Cap for safety
-        stores_list = list(stores)
-        
-        cached_data = {
-            'records': records_list,
-            'stores': stores_list,
-        }
-        try:
-            cache.set(cache_key, cached_data, timeout=30)
-        except Exception:
-            pass
+    customer_summaries.sort(key=lambda x: x['balance'], reverse=True)
 
-    return render(request, 'pos/credits.html', {
-        'records':      cached_data['records'],
-        'profile':      profile,
-        'stores':       cached_data['stores'],
-        'store_filter': store_filter
+    return render(request, 'pos/credits_list.html', {
+        'summaries': customer_summaries,
+        'stores': stores,
+        'profile': profile,
+        'q': q_search
     })
+
+
+@login_required
+@require_profile
+def customer_credit_detail(request, customer_id):
+    profile = get_profile(request.user)
+    from .models import WholesaleCustomer, CreditRecord, CreditPayment
+    customer = get_object_or_404(WholesaleCustomer, id=customer_id)
+    
+    records = list(customer.credit_records.select_related('sale').prefetch_related('sale__items').order_by('-created_at'))
+    payments = list(customer.payments.order_by('-date', '-created_at'))
+    
+    ledger = []
+    for r in records:
+        ledger.append({
+            'type': 'CREDIT',
+            'date': r.created_at,
+            'amount': r.total_due,
+            'ref': r.sale.bill_number if r.sale else r.external_reference,
+            'obj': r,
+            'items': r.sale.items.all() if r.sale else []
+        })
+    for p in payments:
+        ledger.append({
+            'type': 'PAYMENT',
+            'date': p.date,
+            'amount': p.amount,
+            'ref': f"PMT-{p.id}",
+            'obj': p,
+            'items': []
+        })
+    
+    ledger.sort(key=lambda x: x['date'], reverse=True)
+
+    return render(request, 'pos/customer_credit_detail.html', {
+        'customer': customer,
+        'ledger': ledger,
+        'profile': profile
+    })
+
+
+@login_required
+@require_profile
+@require_POST
+def record_credit_payment(request, customer_id):
+    from .models import WholesaleCustomer, CreditPayment
+    customer = get_object_or_404(WholesaleCustomer, id=customer_id)
+    amount = request.POST.get('amount')
+    mode = request.POST.get('payment_mode', 'CASH')
+    note = request.POST.get('note', '')
+    
+    try:
+        CreditPayment.objects.create(
+            customer=customer,
+            amount=amount,
+            payment_mode=mode,
+            note=note,
+            created_by=request.user
+        )
+        messages.success(request, f"Payment of ₹{amount} recorded for {customer.name}.")
+    except Exception as e:
+        messages.error(request, f"Error: {e}")
+        
+    return redirect('customer_credit_detail', customer_id=customer_id)
+
 
 @login_required
 @require_profile

@@ -1,0 +1,149 @@
+{% extends 'pos/base.html' %}
+{% block title %}Credit Detail — {{ customer.name }}{% endblock %}
+{% block content %}
+<div class="pg">
+  <style>
+    .customer-header { background: white; border-radius: 12px; padding: 24px; box-shadow: var(--shadow); margin-bottom: 24px; display: flex; justify-content: space-between; align-items: flex-start; border-left: 6px solid #27A4D1; }
+    .ch-info h1 { font-size: 28px; margin-bottom: 4px; color: #0f2d3d; }
+    .ch-info p { color: #64748b; font-size: 14px; margin: 2px 0; }
+    .ch-stats { text-align: right; }
+    .stat-box { background: #f8fafc; padding: 12px 20px; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 8px; min-width: 180px; }
+    .stat-label { font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 700; }
+    .stat-value { font-size: 20px; font-weight: 800; color: #0f2d3d; }
+    .stat-value.red { color: #b91c1c; }
+
+    .transaction-card { background: white; border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; margin-bottom: 24px; }
+    .ledger-table { width: 100%; border-collapse: collapse; }
+    .ledger-table thead th { background: #0f2d3d; color: white; padding: 12px 15px; text-align: left; font-size: 12px; }
+    .ledger-table tbody td { padding: 15px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
+    .type-badge { padding: 4px 8px; border-radius: 4px; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+    .type-credit { background: #fee2e2; color: #b91c1c; }
+    .type-payment { background: #dcfce7; color: #15803d; }
+    
+    .item-list { font-size: 12px; color: #4b5563; margin-top: 8px; }
+    .item-row { display: flex; justify-content: space-between; padding: 2px 0; border-bottom: 1px dashed #e2e8f0; }
+    .item-row:last-child { border-bottom: none; }
+    .ledger-amt { font-weight: 700; font-size: 15px; }
+
+    .action-panel { display: flex; gap: 12px; margin-bottom: 24px; }
+    .payment-form { background: #eff6ff; padding: 20px; border-radius: 12px; border: 1.5px solid #bfdbfe; margin-top: 24px; }
+  </style>
+
+  <div class="pg-header">
+    <div style="display:flex; align-items:center; gap:12px;">
+      <a href="{% url 'credits_list' %}" class="btn-secondary" style="padding: 10px 14px;"><i class="fas fa-arrow-left"></i></a>
+      <div>
+        <h1>Detailed Credit Ledger</h1>
+        <p>Full transaction history for {{ customer.name }}</p>
+      </div>
+    </div>
+    <div class="action-panel">
+        <button onclick="window.print()" class="btn-secondary"><i class="fas fa-print"></i> Print Statement</button>
+        <a href="https://wa.me/{{ customer.phone }}?text=Hello {{ customer.name }}, your outstanding balance at OCEANWAVES is ₹{{ customer.balance }}. Details: ..." 
+           target="_blank" class="btn-primary" style="background:#25D366; border-color:#25D366; text-decoration:none;">
+           <i class="fab fa-whatsapp"></i> Share Summary
+        </a>
+    </div>
+  </div>
+
+  <div class="customer-header">
+    <div class="ch-info">
+      <h1>{{ customer.name }}</h1>
+      <p><i class="fas fa-phone"></i> {{ customer.phone|default:"No phone" }}</p>
+      <p><i class="fas fa-map-marker-alt"></i> {{ customer.address|default:"No address" }}</p>
+      <p style="margin-top:12px; font-weight:700; color:#0369a1;">
+        <i class="fas fa-calendar-alt"></i> Credit taking since: {{ customer.credit_since|date:"d M Y"|default:"N/A" }}
+      </p>
+    </div>
+    <div class="ch-stats">
+      <div class="stat-box">
+        <div class="stat-label">Total Credit Taken</div>
+        <div class="stat-value">₹{{ customer.total_credit_amount|floatformat:2 }}</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Total Amount Paid</div>
+        <div class="stat-value" style="color:#15803d;">₹{{ customer.total_paid_amount|floatformat:2 }}</div>
+      </div>
+      <div class="stat-box" style="background:#fef2f2; border-color:#fecaca;">
+        <div class="stat-label">Balance Due</div>
+        <div class="stat-value red">₹{{ customer.balance|floatformat:2 }}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="transaction-card">
+    <table class="ledger-table">
+      <thead>
+        <tr>
+          <th style="width: 50px;">S.No</th>
+          <th style="width: 120px;">Date</th>
+          <th style="width: 100px;">Type</th>
+          <th>Reference / Products</th>
+          <th style="width: 150px; text-align:right;">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in ledger %}
+        <tr>
+          <td>{{ forloop.counter }}</td>
+          <td>{{ entry.date|date:"d-m-Y" }}<br><small style="color:#94a3b8;">{{ entry.date|date:"h:i A" }}</small></td>
+          <td>
+            <span class="type-badge {% if entry.type == 'CREDIT' %}type-credit{% else %}type-payment{% endif %}">
+              {{ entry.type }}
+            </span>
+          </td>
+          <td>
+            <strong style="color:#1e293b;">{{ entry.ref }}</strong>
+            {% if entry.items %}
+            <div class="item-list">
+              {% for itm in entry.items %}
+              <div class="item-row">
+                <span>{{ itm.product_name }}</span>
+                <span>₹{{ itm.selling_price }}</span>
+              </div>
+              {% endfor %}
+              <div style="text-align:right; font-weight:700; padding-top:4px;">Total ₹{{ entry.amount }}</div>
+            </div>
+            {% endif %}
+            {% if entry.obj.note %}
+            <div style="font-size:11px; font-style:italic; color:#64748b; margin-top:5px;">Note: {{ entry.obj.note }}</div>
+            {% endif %}
+          </td>
+          <td style="text-align:right;" class="ledger-amt {% if entry.type == 'PAYMENT' %}positive{% endif %}">
+            {% if entry.type == 'CREDIT' %}+{% else %}−{% endif %} ₹{{ entry.amount|floatformat:2 }}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" style="text-align:center; padding:40px; color:#64748b;">No transaction history found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Record Payment Modal-like Form -->
+  <div class="payment-form">
+    <h3 style="margin-bottom:15px; color:#1e40af;"><i class="fas fa-hand-holding-usd"></i> Record a Payment</h3>
+    <form method="POST" action="{% url 'record_credit_payment' customer.id %}" style="display:flex; flex-wrap:wrap; gap:15px; align-items:flex-end;">
+      {% csrf_token %}
+      <div style="flex:1; min-width:150px;">
+        <label style="display:block; font-size:12px; font-weight:700; margin-bottom:4px;">Payment Amount (₹)</label>
+        <input type="number" step="0.01" name="amount" required style="width:100%; padding:10px; border-radius:6px; border:1px solid #93c5fd;" placeholder="0.00">
+      </div>
+      <div style="flex:1; min-width:150px;">
+        <label style="display:block; font-size:12px; font-weight:700; margin-bottom:4px;">Payment Mode</label>
+        <select name="payment_mode" style="width:100%; padding:10px; border-radius:6px; border:1px solid #93c5fd;">
+          <option value="CASH">Cash</option>
+          <option value="UPI">UPI</option>
+          <option value="ONLINE">Online</option>
+          <option value="CARD">Card</option>
+        </select>
+      </div>
+      <div style="flex:2; min-width:250px;">
+        <label style="display:block; font-size:12px; font-weight:700; margin-bottom:4px;">Notes / Reference (Opt)</label>
+        <input type="text" name="note" style="width:100%; padding:10px; border-radius:6px; border:1px solid #93c5fd;" placeholder="e.g. Paid via GPay">
+      </div>
+      <button type="submit" class="btn-primary" style="padding:10px 25px;"><i class="fas fa-check"></i> Save Payment</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
