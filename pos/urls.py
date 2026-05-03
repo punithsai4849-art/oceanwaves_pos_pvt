@@ -91,6 +91,7 @@ urlpatterns = [
     path('wholesale-customers/',                    views.wholesale_customers,          name='wholesale_customers'),
     path('wholesale-customers/add/',                views.wholesale_customer_add,       name='wholesale_customer_add'),
     path('wholesale-customers/<int:cid>/edit/',     views.wholesale_customer_edit,      name='wholesale_customer_edit'),
+    path('wholesale-customers/<int:cid>/delete/',   views.wholesale_customer_delete,    name='wholesale_customer_delete'),
     path('credits/',                                views.credits_list,                 name='credits_list'),
     path('credits/add-external/',                   views.credit_add_external,          name='credit_add_external'),
     path('credits/<int:cid>/pay/',                  views.credit_pay,                   name='credit_pay'),

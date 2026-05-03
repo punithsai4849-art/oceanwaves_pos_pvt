@@ -65,6 +65,12 @@
               onclick="openEditCustomer(this)">
             <i class="fas fa-edit"></i>
           </button>
+          <form method="POST" action="{% url 'wholesale_customer_delete' c.id %}" style="display:inline;" onsubmit="return confirm('Are you sure you want to delete this customer?');">
+            {% csrf_token %}
+            <button type="submit" class="btn-icon-sm red" title="Delete">
+              <i class="fas fa-trash"></i>
+            </button>
+          </form>
           {% else %}
           —
           {% endif %}

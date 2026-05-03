@@ -2373,6 +2373,31 @@ def wholesale_customer_edit(request, cid):
 
 @login_required
 @require_profile
+def wholesale_customer_delete(request, cid):
+    from .models import WholesaleCustomer
+    profile = get_profile(request.user)
+    if not (profile.is_superadmin or profile.is_wholesale_exec or profile.is_owner or profile.is_area_manager):
+        messages.error(request, 'Access denied.')
+        return redirect('wholesale_customers')
+        
+    c = get_object_or_404(WholesaleCustomer, id=cid)
+    
+    # Check if they have outstanding balances before deleting
+    if c.balance > 0:
+        messages.error(request, f'Cannot delete customer {c.name} because they have an outstanding balance of ₹{c.balance}.')
+        return redirect('wholesale_customers')
+        
+    if request.method == 'POST':
+        try:
+            c.delete()
+            messages.success(request, f'Wholesale customer deleted successfully.')
+        except Exception as e:
+            messages.error(request, f'Error deleting customer: {str(e)}')
+            
+    return redirect('wholesale_customers')
+
+@login_required
+@require_profile
 def credits_list(request):
     profile = get_profile(request.user)
     from .models import Store, AreaManagerStore, WholesaleCustomer
