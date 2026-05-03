@@ -2321,11 +2321,13 @@ def wholesale_customer_add(request):
             messages.error(request, 'Customer with this name already exists.')
         else:
             store = profile.store
-            # Superadmins or Managers might select a specific store for the customer
-            store_id = request.POST.get('store_id')
-            if store_id and (profile.is_superadmin or profile.is_wholesale_exec):
-                from .models import Store
-                store = Store.objects.filter(id=store_id).first()
+            if profile.is_superadmin or profile.is_wholesale_exec or profile.is_area_manager:
+                store_id = request.POST.get('store_id')
+                if store_id:
+                    from .models import Store
+                    store = Store.objects.filter(id=store_id).first()
+                else:
+                    store = None
 
             wc = WholesaleCustomer.objects.create(
                 name=name,
@@ -2374,13 +2376,13 @@ def wholesale_customer_edit(request, cid):
             
         c.is_credit_enabled = request.POST.get('is_credit_enabled') == 'on'
         
-        # Allow superadmins/execs to move customers between branches
-        store_id = request.POST.get('store_id')
-        if store_id and (profile.is_superadmin or profile.is_wholesale_exec):
-             from .models import Store
-             new_store = Store.objects.filter(id=store_id).first()
-             if new_store:
-                 c.store = new_store
+        if profile.is_superadmin or profile.is_wholesale_exec or profile.is_area_manager:
+            store_id = request.POST.get('store_id')
+            if store_id:
+                from .models import Store
+                c.store = Store.objects.filter(id=store_id).first()
+            else:
+                c.store = None
 
         c.save()
         messages.success(request, 'Customer updated.')
