@@ -2308,6 +2308,7 @@ def wholesale_customers(request):
 @login_required
 @require_profile
 def wholesale_customer_add(request):
+    from .models import WholesaleCustomer
     profile = get_profile(request.user)
     if not (profile.is_superadmin or profile.is_wholesale_exec or profile.is_owner or profile.is_area_manager):
         messages.error(request, 'Access denied.')
@@ -2342,6 +2343,7 @@ def wholesale_customer_add(request):
 @login_required
 @require_profile
 def wholesale_customer_edit(request, cid):
+    from .models import WholesaleCustomer
     profile = get_profile(request.user)
     if not (profile.is_superadmin or profile.is_wholesale_exec or profile.is_owner or profile.is_area_manager):
         messages.error(request, 'Access denied.')
