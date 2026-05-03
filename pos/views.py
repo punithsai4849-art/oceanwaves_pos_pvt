@@ -2294,7 +2294,8 @@ def wholesale_customers(request):
     
     store_filter = request.GET.get('store_filter')
     if store_filter and store_filter.isdigit():
-        customers = customers.filter(sales__store_id=store_filter).distinct()
+        from django.db.models import Q
+        customers = customers.filter(Q(store_id=store_filter) | Q(sales__store_id=store_filter)).distinct()
         
     customers = customers.order_by('-created_at')
     return render(request, 'pos/wholesale_customers.html', {
@@ -2351,13 +2352,27 @@ def wholesale_customer_edit(request, cid):
         
     c = get_object_or_404(WholesaleCustomer, id=cid)
     if request.method == 'POST':
-        c.name          = request.POST.get('name', c.name).strip()
-        c.customer_code = request.POST.get('customer_code', c.customer_code).strip() or c.customer_code
-        c.phone         = request.POST.get('phone', c.phone)
-        c.email         = request.POST.get('email', c.email)
-        c.gst           = request.POST.get('gst', c.gst)
-        c.credit_duration_days = int(request.POST.get('credit_duration_days', c.credit_duration_days))
-        c.is_credit_enabled    = request.POST.get('is_credit_enabled') == 'on'
+        name = request.POST.get('name', c.name).strip()
+        if WholesaleCustomer.objects.filter(name__iexact=name).exclude(id=cid).exists():
+            messages.error(request, 'Another customer with this name already exists.')
+            return redirect('wholesale_customers')
+        c.name = name
+        
+        code = request.POST.get('customer_code', '').strip()
+        if code and WholesaleCustomer.objects.filter(customer_code__iexact=code).exclude(id=cid).exists():
+            messages.error(request, 'Another customer with this code already exists.')
+            return redirect('wholesale_customers')
+        c.customer_code = code or c.customer_code
+        
+        c.phone = request.POST.get('phone', c.phone)
+        c.email = request.POST.get('email', c.email)
+        c.gst   = request.POST.get('gst', c.gst)
+        
+        cd_days = request.POST.get('credit_duration_days')
+        if cd_days and str(cd_days).isdigit():
+            c.credit_duration_days = int(cd_days)
+            
+        c.is_credit_enabled = request.POST.get('is_credit_enabled') == 'on'
         
         # Allow superadmins/execs to move customers between branches
         store_id = request.POST.get('store_id')
