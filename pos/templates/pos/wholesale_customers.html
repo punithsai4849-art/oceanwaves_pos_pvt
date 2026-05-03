@@ -18,9 +18,7 @@
         </select>
       </form>
       {% endif %}
-      {% if profile.is_superadmin or profile.is_wholesale_exec or profile.is_owner or profile.is_area_manager %}
       <button class="btn-primary" onclick="openModal('addCustomerModal')"><i class="fas fa-plus"></i> Add Customer</button>
-      {% endif %}
     </div>
   </div>
 
@@ -51,7 +49,6 @@
           {% endif %}
         </td>
         <td>
-          {% if profile.is_superadmin or profile.is_wholesale_exec or profile.is_owner or profile.is_area_manager %}
           <button class="btn-icon-sm blue" title="Edit" 
               data-id="{{ c.id }}"
               data-name="{{ c.name|escapejs }}"
@@ -71,9 +68,6 @@
               <i class="fas fa-trash"></i>
             </button>
           </form>
-          {% else %}
-          —
-          {% endif %}
         </td>
       </tr>
       {% empty %}

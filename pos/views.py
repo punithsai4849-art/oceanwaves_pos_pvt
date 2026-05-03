@@ -2311,9 +2311,7 @@ def wholesale_customers(request):
 def wholesale_customer_add(request):
     from .models import WholesaleCustomer
     profile = get_profile(request.user)
-    if not (profile.is_superadmin or profile.is_wholesale_exec or profile.is_owner or profile.is_area_manager):
-        messages.error(request, 'Access denied.')
-        return redirect('wholesale_customers')
+
         
     if request.method == 'POST':
         name = request.POST.get('name', '').strip()
@@ -2321,13 +2319,12 @@ def wholesale_customer_add(request):
             messages.error(request, 'Customer with this name already exists.')
         else:
             store = profile.store
-            if profile.is_superadmin or profile.is_wholesale_exec or profile.is_area_manager:
-                store_id = request.POST.get('store_id')
-                if store_id:
-                    from .models import Store
-                    store = Store.objects.filter(id=store_id).first()
-                else:
-                    store = None
+            store_id = request.POST.get('store_id')
+            if store_id:
+                from .models import Store
+                store = Store.objects.filter(id=store_id).first()
+            else:
+                store = None
 
             wc = WholesaleCustomer.objects.create(
                 name=name,
@@ -2348,9 +2345,7 @@ def wholesale_customer_add(request):
 def wholesale_customer_edit(request, cid):
     from .models import WholesaleCustomer
     profile = get_profile(request.user)
-    if not (profile.is_superadmin or profile.is_wholesale_exec or profile.is_owner or profile.is_area_manager):
-        messages.error(request, 'Access denied.')
-        return redirect('wholesale_customers')
+
         
     c = get_object_or_404(WholesaleCustomer, id=cid)
     if request.method == 'POST':
@@ -2376,13 +2371,12 @@ def wholesale_customer_edit(request, cid):
             
         c.is_credit_enabled = request.POST.get('is_credit_enabled') == 'on'
         
-        if profile.is_superadmin or profile.is_wholesale_exec or profile.is_area_manager:
-            store_id = request.POST.get('store_id')
-            if store_id:
-                from .models import Store
-                c.store = Store.objects.filter(id=store_id).first()
-            else:
-                c.store = None
+        store_id = request.POST.get('store_id')
+        if store_id:
+            from .models import Store
+            c.store = Store.objects.filter(id=store_id).first()
+        else:
+            c.store = None
 
         c.save()
         messages.success(request, 'Customer updated.')
@@ -2393,9 +2387,7 @@ def wholesale_customer_edit(request, cid):
 def wholesale_customer_delete(request, cid):
     from .models import WholesaleCustomer
     profile = get_profile(request.user)
-    if not (profile.is_superadmin or profile.is_wholesale_exec or profile.is_owner or profile.is_area_manager):
-        messages.error(request, 'Access denied.')
-        return redirect('wholesale_customers')
+
         
     c = get_object_or_404(WholesaleCustomer, id=cid)
     
