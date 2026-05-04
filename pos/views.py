@@ -208,113 +208,116 @@ def logout_view(request):
 @login_required
 @require_profile
 def dashboard(request):
+    from django.utils import timezone
+    from datetime import timedelta, date
+    from django.db.models import Sum, Count, Q
+    
     today = date.today()
-    cache_key = f"dashboard_{request.user.id}_{today.isoformat()}"
-
+    tr_start, tr_end = today_range()
     profile = get_profile(request.user)
     if not profile:
         return redirect('login')
         
-    # Route based on role
-    # All roles that manage stores (Admin, SubAdmin, AM, Wholesale Exec) use the Master Dashboard
     if profile.is_superadmin or profile.is_area_manager or profile.is_subadmin:
         template_name = 'pos/dashboard_admin.html'
     else:
         template_name = 'pos/dashboard_store.html'
 
-    # Skip cache check for now to ensure the new design shows up immediately
-    # try:
-    #     cached_data = cache.get(cache_key)
-    #     if cached_data:
-    #         return render(request, template_name, cached_data)
-    # except Exception:
-    #     pass
     try:
-        from .models import Store, Sale, SaleItem, CreditRecord
-        tr_start, tr_end = today_range()
-
+        from .models import Store, Sale, SaleItem, CreditRecord, Product
         context = {}
         
-        # Helper lists to avoid N+1 queries using grouped annotations
+        # Helper maps for today's stats
         bill_counts = Sale.objects.filter(created_at__gte=tr_start, created_at__lte=tr_end).values('store_id').annotate(c=Count('id'))
         bill_map = {item['store_id']: item['c'] for item in bill_counts}
 
         sales_agg = SaleItem.objects.filter(sale__created_at__gte=tr_start, sale__created_at__lte=tr_end).values('sale__store_id').annotate(t_sales=Sum('total_amount'), t_profit=Sum('profit'))
         sales_map = {item['sale__store_id']: {'s': item['t_sales'], 'p': item['t_profit']} for item in sales_agg}
 
-        if profile.is_superadmin or profile.is_area_manager or profile.is_subadmin:
-            if profile.is_superadmin or profile.is_subadmin:
-                stores = Store.objects.filter(is_active=True)
-            else:
-                from .models import AreaManagerStore
-                my_store_ids = list(AreaManagerStore.objects.filter(manager=profile).values_list('store_id', flat=True))
-                stores = Store.objects.filter(id__in=my_store_ids, is_active=True)
-
-            context['total_stores'] = stores.count()
-            
-            # Global Aggregates
-            total_b = total_s = total_p = 0
-            
-            store_data = []
-            for s in stores:
-                b_c = bill_map.get(s.id, 0)
-                s_s = sales_map.get(s.id, {}).get('s', 0) or 0
-                s_p = sales_map.get(s.id, {}).get('p', 0) or 0
-                
-                total_b += b_c
-                total_s += s_s
-                total_p += s_p
-                
-                store_data.append({
-                    'store': s,
-                    'bill_count': b_c,
-                    'total_sales': s_s,
-                    'total_profit': s_p,
-                    'out_stock': 0,
-                    'low_stock': 0,
-                })
-                
-            context['total_bills'] = total_b
-            context['global_sales'] = total_s
-            context['global_profit'] = total_p
-            context['store_data'] = store_data
-
+        # Determine stores to show
+        if profile.is_superadmin or profile.is_subadmin:
+            stores = Store.objects.filter(is_active=True)
+            my_store_ids = list(stores.values_list('id', flat=True))
+        elif profile.is_area_manager:
+            from .models import AreaManagerStore
+            my_store_ids = list(AreaManagerStore.objects.filter(manager=profile).values_list('store_id', flat=True))
+            stores = Store.objects.filter(id__in=my_store_ids, is_active=True)
         else:
-            # Store-Specific Dashboard
+            stores = Store.objects.filter(id=profile.store.id)
+            my_store_ids = [profile.store.id]
+
+        # Aggregates for display
+        total_b = total_s = total_p = 0
+        store_data = []
+        for s in stores:
+            b_c = bill_map.get(s.id, 0)
+            s_s = sales_map.get(s.id, {}).get('s', 0) or 0
+            s_p = sales_map.get(s.id, {}).get('p', 0) or 0
+            total_b += b_c
+            total_s += s_s
+            total_p += s_p
+            store_data.append({
+                'store': s,
+                'bill_count': b_c,
+                'total_sales': s_s,
+                'total_profit': s_p,
+                'out_stock': Product.objects.filter(store=s, is_active=True, stock_quantity__lte=0).count(),
+                'low_stock': Product.objects.filter(store=s, is_active=True, stock_quantity__gt=0, stock_quantity__lte=F('low_stock_alert')).count(),
+            })
+
+        context.update({
+            'total_stores': len(stores),
+            'total_bills': total_b,
+            'global_sales': total_s,
+            'global_profit': total_p,
+            'store_data': store_data,
+        })
+
+        if not (profile.is_superadmin or profile.is_area_manager or profile.is_subadmin):
+            # Store-Specific Stats
             store = profile.store
-            s_s = sales_map.get(store.id, {}).get('s', 0) or 0
-            s_p = sales_map.get(store.id, {}).get('p', 0) or 0
-            b_c = bill_map.get(store.id, 0)
+            context.update({
+                'today_bills': total_b,
+                'today_sales': total_s,
+                'today_profit': total_p,
+                'today_cost': total_s - total_p,
+                'store': store,
+            })
             
-            context['today_bills'] = b_c
-            context['today_sales'] = s_s
-            context['today_profit'] = s_p
-            context['today_cost'] = s_s - s_p
-            
-            # Additional values for UI sync
-            context['total_bills'] = b_c
-            context['global_sales'] = s_s
-            context['global_profit'] = s_p
-            context['total_stores'] = 1
-            
-            context['store'] = store
+            # Stock alerts for store
+            low_p = Product.objects.filter(store=store, is_active=True).filter(Q(stock_quantity__lte=0) | Q(stock_quantity__lte=F('low_stock_alert'))).order_by('stock_quantity')
+            context['low_products'] = low_p[:5]
+            context['out_count'] = Product.objects.filter(store=store, is_active=True, stock_quantity__lte=0).count()
+            context['low_count'] = Product.objects.filter(store=store, is_active=True, stock_quantity__gt=0, stock_quantity__lte=F('low_stock_alert')).count()
 
-        # Urgent credits for everyone
-        q = CreditRecord.objects.select_related('customer', 'sale__store').filter(is_paid=False).order_by('due_date')
+            # Week Summary
+            week_ago = timezone.now() - timedelta(days=7)
+            week_agg = SaleItem.objects.filter(sale__store=store, sale__created_at__gte=week_ago).aggregate(s=Sum('total_amount'), p=Sum('profit'))
+            context['week_sales'] = week_agg['s'] or 0
+            context['week_profit'] = week_agg['p'] or 0
+
+        # Recent Bills (Common)
+        recent_q = Sale.objects.filter(created_at__gte=tr_start, created_at__lte=tr_end).order_by('-created_at')
         if not profile.is_superadmin:
-            if profile.is_area_manager:
-                q = q.filter(sale__store_id__in=my_store_ids)
-            else:
-                q = q.filter(sale__store=profile.store)
+            recent_q = recent_q.filter(store_id__in=my_store_ids)
+        context['recent_sales'] = recent_q[:10]
 
-        context['urgent_credits'] = q[:10]
-
-        try:
-            cache.set(cache_key, context, timeout=60)
-        except Exception:
-            pass
+        # Urgent vs Pending Credits
+        due_threshold = today + timedelta(days=2) # 48 hours
+        credits_q = CreditRecord.objects.select_related('customer', 'sale__store').filter(is_paid=False).order_by('due_date')
+        if not profile.is_superadmin:
+            credits_q = credits_q.filter(sale__store_id__in=my_store_ids)
+        
+        context['urgent_credits'] = credits_q.filter(due_date__lte=due_threshold)[:10]
+        context['pending_credits'] = credits_q.filter(due_date__gt=due_threshold)[:10]
 
         return render(request, template_name, context)
+
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Dashboard error: {e}")
+        return render(request, template_name, {"error": str(e)})
 
     except Exception as e:
         logger.error(f"Dashboard error: {e}")
