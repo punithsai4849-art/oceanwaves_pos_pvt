@@ -10,14 +10,23 @@
     </div>
     <div style="display:flex;gap:10px;align-items:center;">
       <form method="GET" style="display:flex;gap:8px;align-items:center;">
-        <input type="date" name="date" value="{{ report_date|date:'Y-m-d' }}" onchange="this.form.submit()" class="date-input">
+        <label style="font-size:12px;font-weight:600;color:var(--muted);">From:</label>
+        <input type="date" name="from_date" value="{{ from_date|date:'Y-m-d' }}" class="date-input">
+        <label style="font-size:12px;font-weight:600;color:var(--muted);">To:</label>
+        <input type="date" name="to_date" value="{% if to_date != from_date %}{{ to_date|date:'Y-m-d' }}{% endif %}" class="date-input">
+        <button type="submit" class="btn-primary" style="padding: 6px 12px; font-size: 13px;">Apply</button>
       </form>
-      <a href="{% url 'export_excel' %}?date={{ report_date|date:'Y-m-d' }}" class="btn-excel"><i class="fas fa-file-excel"></i> Export</a>
+      <a href="{% url 'export_excel' %}?from_date={{ from_date|date:'Y-m-d' }}&to_date={{ to_date|date:'Y-m-d' }}" class="btn-excel"><i class="fas fa-file-excel"></i> Export</a>
     </div>
   </div>
 
   <h2 class="report-date-hdr">
-    <i class="fas fa-calendar-day"></i> {{ report_date|date:"d F Y" }}
+    <i class="fas fa-calendar-day"></i> 
+    {% if from_date == to_date %}
+      {{ from_date|date:"d F Y" }}
+    {% else %}
+      {{ from_date|date:"d F Y" }} — {{ to_date|date:"d F Y" }}
+    {% endif %}
   </h2>
 
   <div class="kpi-grid">
@@ -168,7 +177,14 @@
   {% else %}
   <div class="empty-state" style="padding:60px;text-align:center;">
     <i class="fas fa-chart-bar" style="font-size:48px;color:#90e0ef;margin-bottom:12px;display:block;"></i>
-    <p style="font-size:16px;color:#6b7a8d;">No sales on {{ report_date|date:"d F Y" }}</p>
+    <p style="font-size:16px;color:#6b7a8d;">
+      No sales for 
+      {% if from_date == to_date %}
+        {{ from_date|date:"d F Y" }}
+      {% else %}
+        {{ from_date|date:"d F Y" }} to {{ to_date|date:"d F Y" }}
+      {% endif %}
+    </p>
   </div>
   {% endif %}
 </div>

@@ -1214,15 +1214,23 @@ def reports(request):
         return redirect('dashboard')
 
     store   = profile.store
-    report_date_str = request.GET.get('date', '')
+    from_date_str = request.GET.get('from_date', '')
+    to_date_str = request.GET.get('to_date', '')
+    
     try:
-        report_date = date.fromisoformat(report_date_str) if report_date_str else date.today()
+        from_date = date.fromisoformat(from_date_str) if from_date_str else date.today()
     except ValueError:
-        report_date = date.today()
+        from_date = date.today()
+        
+    try:
+        to_date = date.fromisoformat(to_date_str) if to_date_str else from_date
+    except ValueError:
+        to_date = from_date
 
-    r_start, r_end = date_range(report_date)
+    r_start = date_range(from_date)[0]
+    r_end = date_range(to_date)[1]
 
-    cache_key = f'pos_reports_{store.id if store else "global"}_{report_date.isoformat()}'
+    cache_key = f'pos_reports_{store.id if store else "global"}_{from_date.isoformat()}_{to_date.isoformat()}'
     cached_data = None
     try:
         cached_data = cache.get(cache_key)
@@ -1251,7 +1259,7 @@ def reports(request):
         type_breakdown = list(Sale.objects.filter(**sale_filter).values('bill_type').annotate(
             count=Count('id'), total=Sum('grand_total')).order_by('-total'))
 
-        expenses_filter = {'date': report_date}
+        expenses_filter = {'date__range': (from_date, to_date)}
         if store:
             expenses_filter['store'] = store
         
@@ -1283,7 +1291,8 @@ def reports(request):
     ctx = {
         'profile':         profile,
         'store':           store,
-        'report_date':     report_date,
+        'from_date':       from_date,
+        'to_date':         to_date,
         'sales':           cached_data['sales'],
         'sale_items':      cached_data['sale_items'],
         'total_sales':     cached_data['total_sales'],
@@ -1312,13 +1321,21 @@ def export_excel(request):
         return HttpResponse('openpyxl not installed.', status=500)
 
     store = profile.store
-    report_date_str = request.GET.get('date', '')
+    from_date_str = request.GET.get('from_date', '')
+    to_date_str = request.GET.get('to_date', '')
+    
     try:
-        report_date = date.fromisoformat(report_date_str) if report_date_str else date.today()
+        from_date = date.fromisoformat(from_date_str) if from_date_str else date.today()
     except ValueError:
-        report_date = date.today()
+        from_date = date.today()
+        
+    try:
+        to_date = date.fromisoformat(to_date_str) if to_date_str else from_date
+    except ValueError:
+        to_date = from_date
 
-    r_start, r_end = date_range(report_date)
+    r_start = date_range(from_date)[0]
+    r_end = date_range(to_date)[1]
     qs_filter = {'sale__created_at__range': (r_start, r_end)}
     if store:
         qs_filter['sale__store'] = store
@@ -1326,7 +1343,8 @@ def export_excel(request):
 
     wb  = openpyxl.Workbook()
     ws  = wb.active
-    ws.title = f"Sales {report_date}"
+    date_label = from_date.isoformat() if from_date == to_date else f"{from_date.isoformat()} to {to_date.isoformat()}"
+    ws.title = f"Sales {date_label}"[:31]
 
     hdr_font  = Font(bold=True, color='FFFFFF', size=11)
     hdr_fill  = PatternFill('solid', fgColor='0077B6')
@@ -1339,7 +1357,7 @@ def export_excel(request):
     ws['A1'].font = Font(bold=True, size=14, color='0077B6')
     ws['A1'].alignment = Alignment(horizontal='center')
     ws.merge_cells('A2:J2')
-    ws['A2'] = f'Date: {report_date.strftime("%d %B %Y")}'
+    ws['A2'] = f'Date: {date_label}'
     ws['A2'].alignment = Alignment(horizontal='center')
     ws['A2'].font = Font(italic=True)
     

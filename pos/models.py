@@ -573,12 +573,17 @@ class StoreSession(models.Model):
         return f"[{self.store.name}] Session {self.date}"
 
 
+def asset_upload_path(instance, filename):
+    ext = Path(filename).suffix.lower()
+    return f"asset_bills/{uuid.uuid4().hex}{ext}"
+
 class StoreAsset(models.Model):
     store         = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='assets')
     name          = models.CharField(max_length=200)
     purchase_date = models.DateField(default=timezone.now)
     cost          = models.DecimalField(max_digits=12, decimal_places=2)
     notes         = models.TextField(blank=True)
+    bill_pdf      = models.FileField(upload_to=asset_upload_path, blank=True, null=True)
     created_at    = models.DateTimeField(auto_now_add=True)
     created_by    = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
 

@@ -248,6 +248,7 @@ def asset_list_view(request):
         date_str  = request.POST.get('purchase_date', timezone.now().date().isoformat())
         cost      = request.POST.get('cost',          '').strip()
         notes     = request.POST.get('notes',         '').strip()
+        bill_pdf  = request.FILES.get('bill_pdf')
 
         if not name or not cost:
             messages.error(request, 'Asset name and cost are required.')
@@ -259,6 +260,7 @@ def asset_list_view(request):
                     purchase_date = datetime.date.fromisoformat(date_str),
                     cost          = decimal.Decimal(cost),
                     notes         = notes,
+                    bill_pdf      = bill_pdf,
                     created_by    = request.user,
                 )
                 messages.success(request, f'Asset "{name}" added to the register.')
