@@ -106,6 +106,7 @@
       <span>{{ user.get_full_name|default:user.username }}</span>
       <span class="role-pill role-{{ profile.role|lower }}">{{ profile.get_role_display }}</span>
     </div>
+    <button class="btn-logout" id="stickyNotesToggleBtn" onclick="toggleStickyPanel()" title="Sticky Notes" style="background:none;border:1px solid rgba(255,255,255,0.3);border-radius:8px;color:inherit;cursor:pointer;padding:6px 10px;margin-right:4px;"><i class="fas fa-sticky-note"></i></button>
     <a href="{% url 'logout' %}" class="btn-logout"><i class="fas fa-sign-out-alt"></i></a>
   </div>
 </nav>
@@ -218,6 +219,163 @@ function toggleMobileNav() {
 
   {% block content %}{% endblock %}
 </div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     STICKY NOTES WIDGET
+═══════════════════════════════════════════════════════════════ -->
+{% if user.is_authenticated %}
+<div id="stickyPanel" style="display:none;position:fixed;bottom:24px;right:24px;width:340px;max-height:80vh;z-index:9999;border-radius:16px;background:var(--card,#fff);box-shadow:0 8px 40px rgba(0,0,0,0.22);overflow:hidden;display:none;flex-direction:column;font-family:inherit;">
+  <!-- Header -->
+  <div id="stickyHeader" style="background:linear-gradient(135deg,var(--primary),var(--secondary));padding:12px 16px;display:flex;align-items:center;justify-content:space-between;cursor:move;user-select:none;">
+    <div style="display:flex;align-items:center;gap:8px;">
+      <i class="fas fa-sticky-note" style="color:#fff;font-size:16px;"></i>
+      <span style="color:#fff;font-weight:700;font-size:14px;">Sticky Notes</span>
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;">
+      <button onclick="addNewNote()" title="New note" style="background:rgba(255,255,255,0.25);border:none;border-radius:6px;color:#fff;padding:4px 8px;cursor:pointer;font-size:12px;"><i class="fas fa-plus"></i></button>
+      <button onclick="toggleStickyPanel()" style="background:rgba(255,255,255,0.25);border:none;border-radius:6px;color:#fff;padding:4px 8px;cursor:pointer;font-size:14px;"><i class="fas fa-times"></i></button>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div id="stickyTabs" style="display:flex;gap:4px;padding:8px 12px 0;background:var(--card,#fff);overflow-x:auto;border-bottom:1px solid var(--border,#eee);scrollbar-width:thin;"></div>
+
+  <!-- Content area -->
+  <div style="padding:12px;flex:1;overflow-y:auto;background:var(--card,#fff);">
+    <!-- Color picker -->
+    <div style="display:flex;gap:6px;margin-bottom:8px;align-items:center;">
+      <span style="font-size:11px;color:var(--muted,#888);font-weight:600;">Color:</span>
+      <button onclick="setNoteColor('var(--primary-xl)')" style="width:20px;height:20px;border-radius:50%;background:var(--primary-xl);border:2px solid #ccc;cursor:pointer;" title="Yellow"></button>
+      <button onclick="setNoteColor('#dcfce7')" style="width:20px;height:20px;border-radius:50%;background:#dcfce7;border:2px solid #ccc;cursor:pointer;" title="Green"></button>
+      <button onclick="setNoteColor('#dbeafe')" style="width:20px;height:20px;border-radius:50%;background:#dbeafe;border:2px solid #ccc;cursor:pointer;" title="Blue"></button>
+      <button onclick="setNoteColor('#fce7f3')" style="width:20px;height:20px;border-radius:50%;background:#fce7f3;border:2px solid #ccc;cursor:pointer;" title="Pink"></button>
+      <button onclick="setNoteColor('#fff')" style="width:20px;height:20px;border-radius:50%;background:#fff;border:2px solid #ccc;cursor:pointer;" title="White"></button>
+    </div>
+    <!-- Text area -->
+    <textarea id="stickyTextarea" placeholder="Write anything — notes, calculations, reminders..."
+      oninput="saveCurrentNote()"
+      style="width:100%;min-height:180px;border:none;outline:none;resize:vertical;font-size:14px;line-height:1.6;padding:10px;border-radius:8px;background:var(--primary-xl);color:#333;font-family:inherit;box-sizing:border-box;"></textarea>
+    
+    <!-- Delete note -->
+    <div style="margin-top:8px;display:flex;justify-content:flex-end;">
+      <button onclick="deleteCurrentNote()" style="background:none;border:1px solid #fca5a5;color:#ef4444;border-radius:8px;padding:4px 12px;cursor:pointer;font-size:12px;"><i class="fas fa-trash"></i> Delete note</button>
+    </div>
+  </div>
+</div>
+
+<style>
+#stickyPanel { display: none; }
+#stickyPanel.open { display: flex !important; }
+.snote-tab { padding:4px 12px;border-radius:8px 8px 0 0;font-size:12px;cursor:pointer;white-space:nowrap;border:none;font-weight:600;transition:background .15s; }
+.snote-tab.active { background:linear-gradient(135deg,var(--primary),var(--secondary));color:#fff; }
+.snote-tab:not(.active) { background:var(--border,#eee);color:var(--muted,#888); }
+</style>
+
+<script>
+(function(){
+  const STORAGE_KEY = 'pos_sticky_notes_v1';
+  let notes = [];
+  let activeIdx = 0;
+
+  function loadNotes() {
+    try { notes = JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch(e) { notes = []; }
+    if (!notes.length) notes = [{ title:'Note 1', content:'', color:'var(--primary-xl)' }];
+    activeIdx = Math.min(activeIdx, notes.length - 1);
+  }
+
+  function saveNotes() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(notes));
+  }
+
+  window.toggleStickyPanel = function() {
+    const panel = document.getElementById('stickyPanel');
+    loadNotes();
+    panel.classList.toggle('open');
+    if (panel.classList.contains('open')) renderPanel();
+  };
+
+  window.addNewNote = function() {
+    notes.push({ title: 'Note ' + (notes.length + 1), content:'', color:'var(--primary-xl)' });
+    activeIdx = notes.length - 1;
+    saveNotes();
+    renderPanel();
+  };
+
+  window.deleteCurrentNote = function() {
+    if (notes.length === 1) { notes[0].content = ''; saveNotes(); renderPanel(); return; }
+    notes.splice(activeIdx, 1);
+    activeIdx = Math.max(0, activeIdx - 1);
+    saveNotes();
+    renderPanel();
+  };
+
+  window.saveCurrentNote = function() {
+    notes[activeIdx].content = document.getElementById('stickyTextarea').value;
+    saveNotes();
+  };
+
+  window.setNoteColor = function(color) {
+    notes[activeIdx].color = color;
+    document.getElementById('stickyTextarea').style.background = color;
+    saveNotes();
+  };
+
+  function setActive(idx) {
+    activeIdx = idx;
+    renderPanel();
+  }
+
+  function renderPanel() {
+    const note = notes[activeIdx];
+    document.getElementById('stickyTextarea').value = note.content;
+    document.getElementById('stickyTextarea').style.background = note.color || 'var(--primary-xl)';
+    
+    
+    // Render tabs
+    const tabs = document.getElementById('stickyTabs');
+    tabs.innerHTML = '';
+    notes.forEach(function(n, i) {
+      const btn = document.createElement('button');
+      btn.className = 'snote-tab' + (i === activeIdx ? ' active' : '');
+      btn.textContent = n.title || ('Note ' + (i+1));
+      btn.ondblclick = function() {
+        const nm = prompt('Rename note:', n.title);
+        if (nm) { notes[i].title = nm; saveNotes(); renderPanel(); }
+      };
+      btn.onclick = function() { setActive(i); };
+      tabs.appendChild(btn);
+    });
+  }
+
+  // Drag logic
+  (function makeDraggable(){
+    const panel = document.getElementById('stickyPanel');
+    const header = document.getElementById('stickyHeader');
+    let startX, startY, startL, startT;
+    header.addEventListener('mousedown', function(e) {
+      if (e.target.tagName === 'BUTTON' || e.target.tagName === 'I') return;
+      startX = e.clientX; startY = e.clientY;
+      const r = panel.getBoundingClientRect();
+      startL = r.left; startT = r.top;
+      panel.style.right = 'auto';
+      panel.style.bottom = 'auto';
+      panel.style.left = startL + 'px';
+      panel.style.top = startT + 'px';
+      function onMove(e) {
+        panel.style.left = (startL + e.clientX - startX) + 'px';
+        panel.style.top = (startT + e.clientY - startY) + 'px';
+      }
+      function onUp() {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  })();
+})();
+</script>
+{% endif %}
 
 <script src="{% static 'pos/js/main.js' %}"></script>
 {% block extra_js %}{% endblock %}
