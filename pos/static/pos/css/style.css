@@ -37,7 +37,7 @@
   --radius-sm:     8px;
 }
 *{margin:0;padding:0;box-sizing:border-box;}
-body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;scroll-behavior:smooth;overscroll-behavior-y:contain;}
 a{text-decoration:none;color:inherit;}
 ::-webkit-scrollbar{width:5px;height:5px;}
 ::-webkit-scrollbar-thumb{background:var(--primary-l);border-radius:3px;}
@@ -371,8 +371,12 @@ button, a, input, select, .btn-icon-sm, .nav-link, .pill {
   height: 2px;
   background: var(--primary-d);
   border-radius: 2px;
-  transition: .25s;
+  transition: .3s cubic-bezier(0.4, 0, 0.2, 1);
+  transform-origin: center;
 }
+.nav-hamburger.active span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+.nav-hamburger.active span:nth-child(2) { opacity: 0; transform: translateX(-10px); }
+.nav-hamburger.active span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
 
 /* ── Mobile Nav Drawer ── */
 .mobile-nav-overlay {
@@ -540,6 +544,28 @@ body.nav-open { overflow: hidden; }
 
   /* Toast */
   .toast-stack { left: 8px; right: 8px; max-width: unset; }
+
+  /* Premium Mobile Touches */
+  .navbar { backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); background: rgba(210, 223, 235, 0.85); }
+  .btn-primary, .btn-save, .login-btn { min-height: 48px; } /* Finger friendly */
+  input, select, textarea { font-size: 16px !important; } /* Prevent iOS zoom on focus */
+  
+  /* Sticky Note Mobile Optimization */
+  #stickyPanel {
+    width: 100% !important;
+    height: 70vh !important;
+    bottom: -100% !important;
+    right: 0 !important;
+    left: 0 !important;
+    border-radius: 24px 24px 0 0 !important;
+    transition: bottom 0.4s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    box-shadow: 0 -10px 40px rgba(0,0,0,0.2) !important;
+  }
+  #stickyPanel.open {
+    display: flex !important;
+    bottom: 0 !important;
+  }
+  #stickyHeader { padding: 18px 20px !important; }
 }
 
 @media (max-width: 480px) {

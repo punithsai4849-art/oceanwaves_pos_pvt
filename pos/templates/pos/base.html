@@ -196,8 +196,13 @@
 
 <script>
 function toggleMobileNav() {
-  document.getElementById('mobileNavDrawer').classList.toggle('open');
-  document.getElementById('mobileNavOverlay').classList.toggle('open');
+  const drawer = document.getElementById('mobileNavDrawer');
+  const overlay = document.getElementById('mobileNavOverlay');
+  const burger = document.querySelector('.nav-hamburger');
+  
+  drawer.classList.toggle('open');
+  overlay.classList.toggle('open');
+  burger.classList.toggle('active');
   document.body.classList.toggle('nav-open');
 }
 </script>
@@ -353,6 +358,7 @@ function toggleMobileNav() {
     const header = document.getElementById('stickyHeader');
     let startX, startY, startL, startT;
     header.addEventListener('mousedown', function(e) {
+      if (window.innerWidth <= 768) return; // Disable drag on mobile (bottom sheet mode)
       if (e.target.tagName === 'BUTTON' || e.target.tagName === 'I') return;
       startX = e.clientX; startY = e.clientY;
       const r = panel.getBoundingClientRect();
