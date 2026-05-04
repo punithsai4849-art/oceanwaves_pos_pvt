@@ -51,11 +51,11 @@
         <td>
           <button class="btn-icon-sm blue" title="Edit" 
               data-id="{{ c.id }}"
-              data-name="{{ c.name|escapejs }}"
-              data-phone="{{ c.phone|escapejs }}"
-              data-email="{{ c.email|escapejs }}"
-              data-gst="{{ c.gst|escapejs }}"
-              data-code="{{ c.customer_code|escapejs }}"
+              data-name="{{ c.name }}"
+              data-phone="{{ c.phone }}"
+              data-email="{{ c.email }}"
+              data-gst="{{ c.gst }}"
+              data-code="{{ c.customer_code }}"
               data-store="{{ c.store_id|default:'' }}"
               data-duration="{{ c.credit_duration_days }}"
               data-credit="{{ c.is_credit_enabled|yesno:'true,false' }}"
@@ -84,7 +84,6 @@
     <div class="mhdr"><h3>Add Customer</h3><button onclick="closeModal('addCustomerModal')">×</button></div>
     <form method="POST" action="{% url 'wholesale_customer_add' %}" class="mform">
       {% csrf_token %}
-      <div class="frow">
       <div class="frow">
         <div class="fg"><label>Name *</label><input type="text" name="name" required></div>
         <div class="fg"><label>Customer Code (Optional)</label><input type="text" name="customer_code" placeholder="Leave blank to auto-generate"></div>
@@ -123,7 +122,6 @@
     <div class="mhdr"><h3>Edit Customer</h3><button onclick="closeModal('editCustomerModal')">×</button></div>
     <form id="editCustomerForm" method="POST" class="mform">
       {% csrf_token %}
-      <div class="frow">
       <div class="frow">
         <div class="fg"><label>Name *</label><input type="text" name="name" id="ecName" required></div>
         <div class="fg"><label>Customer Code</label><input type="text" name="customer_code" id="ecCode"></div>
