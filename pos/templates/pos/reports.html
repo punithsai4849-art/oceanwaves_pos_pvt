@@ -131,40 +131,29 @@
   </div>
 
   <div class="table-card">
-    <div class="tc-header"><h3><i class="fas fa-fish"></i> Line Items</h3></div>
+    <div class="tc-header"><h3><i class="fas fa-fish"></i> Product Sales Summary</h3></div>
     <table class="data-table">
       <thead><tr>
-        {% if not store %}<th>Store</th>{% endif %}
-        <th>Bill #</th><th>Product</th><th>Qty</th><th>Mode</th>
+        <th>Product</th><th class="tr">Qty Sold</th><th class="tr">Total Sales</th>
         {% if not profile.is_staff_role %}
-        <th>CP/kg</th>
-        {% endif %}
-        <th>SP/kg</th><th>Sales</th>
-        {% if not profile.is_staff_role %}
-        <th>Cost</th><th>Profit</th>
+        <th class="tr">Total Cost</th><th class="tr">Gross Profit</th>
         {% endif %}
       </tr></thead>
       <tbody>
-      {% for item in sale_items %}
+      {% for item in product_summary %}
       <tr>
-        {% if not store %}<td>{{ item.sale.store.name }}</td>{% endif %}
-        <td>{{ item.sale.bill_number }}</td>
         <td><strong>{{ item.product_name }}</strong></td>
-        <td class="tr">{{ item.quantity }}</td>
-        <td>{{ item.sale.get_payment_mode_display }}</td>
+        <td class="tr">{{ item.qty|floatformat:3 }}</td>
+        <td class="tr">₹{{ item.sales|floatformat:2 }}</td>
         {% if not profile.is_staff_role %}
-        <td class="tr">₹{{ item.cost_price }}</td>
-        {% endif %}
-        <td class="tr">₹{{ item.selling_price }}</td>
-        <td class="tr">₹{{ item.total_amount }}</td>
-        {% if not profile.is_staff_role %}
-        <td class="tr">₹{{ item.total_cost }}</td>
-        <td class="tr {% if item.profit >= 0 %}text-green{% else %}text-red{% endif %}"><strong>₹{{ item.profit }}</strong></td>
+        <td class="tr">₹{{ item.cost|floatformat:2 }}</td>
+        <td class="tr {% if item.profit >= 0 %}text-green{% else %}text-red{% endif %}"><strong>₹{{ item.profit|floatformat:2 }}</strong></td>
         {% endif %}
       </tr>
       {% endfor %}
       <tr class="totals-row">
-        <td colspan="{% if not store %}{% if not profile.is_staff_role %}7{% else %}5{% endif %}{% else %}{% if not profile.is_staff_role %}6{% else %}4{% endif %}{% endif %}"><strong>TOTALS</strong></td>
+        <td><strong>TOTALS</strong></td>
+        <td></td>
         <td class="tr"><strong>₹{{ total_sales|floatformat:2 }}</strong></td>
         {% if not profile.is_staff_role %}
         <td class="tr"><strong>₹{{ total_cost|floatformat:2 }}</strong></td>

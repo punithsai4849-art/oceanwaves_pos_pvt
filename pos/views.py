@@ -1230,79 +1230,59 @@ def reports(request):
     r_start = date_range(from_date)[0]
     r_end = date_range(to_date)[1]
 
-    cache_key = f'pos_reports_{store.id if store else "global"}_{from_date.isoformat()}_{to_date.isoformat()}'
-    cached_data = None
-    try:
-        cached_data = cache.get(cache_key)
-    except Exception:
-        pass
+    qs_filter = {'sale__created_at__range': (r_start, r_end)}
+    if store:
+        qs_filter['sale__store'] = store
+    items_qs = SaleItem.objects.filter(**qs_filter)
+    
+    product_summary = list(items_qs.values('product_name').annotate(
+        qty=Sum('quantity'),
+        sales=Sum('total_amount'),
+        cost=Sum('total_cost'),
+        profit=Sum('profit')
+    ).order_by('-qty'))
 
-    if not cached_data:
-        qs_filter = {'sale__created_at__range': (r_start, r_end)}
-        if store:
-            qs_filter['sale__store'] = store
-        items_qs = SaleItem.objects.filter(**qs_filter).select_related('sale', 'sale__store', 'product')
-        # Pre-evaluate items and aggregation
-        items = list(items_qs[:500])  # Cap at 500 for safety on low RAM
-        agg = items_qs.aggregate(
-            total_sales=Sum('total_amount'), total_cost=Sum('total_cost'), total_profit=Sum('profit'))
+    agg = items_qs.aggregate(
+        total_sales=Sum('total_amount'), total_cost=Sum('total_cost'), total_profit=Sum('profit'))
 
-        sale_filter = {'created_at__range': (r_start, r_end)}
-        if store:
-            sale_filter['store'] = store
-        
-        # Pre-evaluate sales, breakdowns, and expenses
-        sales = list(Sale.objects.filter(**sale_filter).prefetch_related('items').select_related('store')[:200])
-        
-        pay_breakdown  = list(Sale.objects.filter(**sale_filter).values('payment_mode').annotate(
-            count=Count('id'), total=Sum('grand_total')).order_by('-total'))
-        type_breakdown = list(Sale.objects.filter(**sale_filter).values('bill_type').annotate(
-            count=Count('id'), total=Sum('grand_total')).order_by('-total'))
+    sale_filter = {'created_at__range': (r_start, r_end)}
+    if store:
+        sale_filter['store'] = store
+    
+    sales = list(Sale.objects.filter(**sale_filter).prefetch_related('items').select_related('store')[:200])
+    
+    pay_breakdown  = list(Sale.objects.filter(**sale_filter).values('payment_mode').annotate(
+        count=Count('id'), total=Sum('grand_total')).order_by('-total'))
+    type_breakdown = list(Sale.objects.filter(**sale_filter).values('bill_type').annotate(
+        count=Count('id'), total=Sum('grand_total')).order_by('-total'))
 
-        expenses_filter = {'date__range': (from_date, to_date)}
-        if store:
-            expenses_filter['store'] = store
-        
-        expenses = list(Expense.objects.filter(**expenses_filter)[:100])
-        total_expense = float(Expense.objects.filter(**expenses_filter).aggregate(t=Sum('amount'))['t'] or 0)
+    expenses_filter = {'date__range': (from_date, to_date)}
+    if store:
+        expenses_filter['store'] = store
+    
+    expenses = list(Expense.objects.filter(**expenses_filter)[:100])
+    total_expense = float(Expense.objects.filter(**expenses_filter).aggregate(t=Sum('amount'))['t'] or 0)
 
-        total_sales   = float(agg['total_sales']  or 0)
-        total_cost    = float(agg['total_cost']   or 0)
-        total_profit  = float(agg['total_profit'] or 0)
-        net_profit    = total_profit - total_expense
-
-        cached_data = {
-            'sales':           sales,
-            'sale_items':      items,
-            'total_sales':     total_sales,
-            'total_cost':      total_cost,
-            'total_profit':    total_profit,
-            'pay_breakdown':   pay_breakdown,
-            'type_breakdown':  type_breakdown,
-            'expenses':        expenses,
-            'total_expense':   total_expense,
-            'net_profit':      net_profit,
-        }
-        try:
-            cache.set(cache_key, cached_data, timeout=60)
-        except Exception:
-            pass
+    total_sales   = float(agg['total_sales']  or 0)
+    total_cost    = float(agg['total_cost']   or 0)
+    total_profit  = float(agg['total_profit'] or 0)
+    net_profit    = total_profit - total_expense
 
     ctx = {
         'profile':         profile,
         'store':           store,
         'from_date':       from_date,
         'to_date':         to_date,
-        'sales':           cached_data['sales'],
-        'sale_items':      cached_data['sale_items'],
-        'total_sales':     cached_data['total_sales'],
-        'total_cost':      cached_data['total_cost'],
-        'total_profit':    cached_data['total_profit'],
-        'pay_breakdown':   cached_data['pay_breakdown'],
-        'type_breakdown':  cached_data['type_breakdown'],
-        'expenses':        cached_data['expenses'],
-        'total_expense':   cached_data['total_expense'],
-        'net_profit':      cached_data['net_profit'],
+        'sales':           sales,
+        'product_summary': product_summary,
+        'total_sales':     total_sales,
+        'total_cost':      total_cost,
+        'total_profit':    total_profit,
+        'pay_breakdown':   pay_breakdown,
+        'type_breakdown':  type_breakdown,
+        'expenses':        expenses,
+        'total_expense':   total_expense,
+        'net_profit':      net_profit,
     }
     return render(request, 'pos/reports.html', ctx)
 
@@ -1400,7 +1380,7 @@ def export_excel(request):
         ws.column_dimensions[get_column_letter(i)].width = w
 
     resp = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    resp['Content-Disposition'] = f'attachment; filename="OceanWaves_Sales_{report_date}.xlsx"'
+    resp['Content-Disposition'] = f'attachment; filename="OceanWaves_Sales_{date_label}.xlsx"'
     wb.save(resp)
     return resp
 

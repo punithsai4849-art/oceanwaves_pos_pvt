@@ -54,22 +54,22 @@ def daily_report_view(request):
         messages.error(request, 'Access denied.')
         return redirect('dashboard')
 
-    date_str = request.GET.get('date', datetime.date.today().isoformat())
+    from_date_str = request.GET.get('from_date', '')
+    to_date_str = request.GET.get('to_date', '')
     try:
-        report_date = datetime.date.fromisoformat(date_str)
+        from_date = datetime.date.fromisoformat(from_date_str) if from_date_str else datetime.date.today()
     except ValueError:
-        report_date = datetime.date.today()
-
-    r_start, r_end = _date_range(report_date)
-
-    cache_key = f'pos_daily_report_{store.id}_{report_date.isoformat()}'
-    cached_data = None
+        from_date = datetime.date.today()
+        
     try:
-        cached_data = cache.get(cache_key)
-    except Exception:
-        pass
+        to_date = datetime.date.fromisoformat(to_date_str) if to_date_str else from_date
+    except ValueError:
+        to_date = from_date
 
-    if not cached_data:
+    r_start = _date_range(from_date)[0]
+    r_end = _date_range(to_date)[1]
+
+    if True:
         # ── Product-level data ──────────────────────────────────────────────────
         # Sold quantities per product today
         sold_list = list(SaleItem.objects
@@ -90,59 +90,42 @@ def daily_report_view(request):
             .annotate(purchased_qty=Sum('quantity')))
         purchased_map = {row['product_id']: row['purchased_qty'] for row in purchased_list}
 
-        # DailyStockSnapshot for opening/closing
-        snapshots_list = list(DailyStockSnapshot.objects.filter(
-            store=store, date=report_date
-        ).select_related('product').only(
-            'product_id', 'product__name', 'product__cost_price', 'product__retail_price',
-            'opening_qty', 'closing_qty', 'sold_qty', 'purchased_qty'
-        ))
+        # DailyStockSnapshot for opening (first day) and closing (last day)
+        first_snaps = {s.product_id: s for s in DailyStockSnapshot.objects.filter(store=store, date=from_date).select_related('product')}
+        last_snaps = {s.product_id: s for s in DailyStockSnapshot.objects.filter(store=store, date=to_date).select_related('product')}
 
         product_rows = []
-        if snapshots_list:
-            for snap in snapshots_list:
-                pid  = snap.product_id
-                sold = sold_map.get(pid, {})
-                cost_price = float(snap.product.cost_price or 0)
-                selling_price = float(sold.get('selling_price') or snap.product.retail_price or 0)
-                sold_qty   = float(sold.get('sold_qty') or snap.sold_qty or 0)
-                total_sale = float(sold.get('total_sale') or 0)
-                profit     = float(sold.get('profit') or 0)
-                purchased_qty = float(purchased_map.get(pid, snap.purchased_qty or 0))
-                product_rows.append({
-                    'product_name'  : snap.product.name,
-                    'opening_qty'   : float(snap.opening_qty or 0),
-                    'purchased_qty' : purchased_qty,
-                    'purchase_price': cost_price,
-                    'sold_qty'      : sold_qty,
-                    'selling_price' : selling_price,
-                    'closing_qty'   : float(snap.closing_qty or 0),
-                    'profit'        : profit,
-                    'total_sale'    : total_sale,
-                })
-        else:
-            # No snapshot — build from live data
-            products = list(Product.objects.filter(store=store, is_active=True))
-            for p in products:
-                sold = sold_map.get(p.id)
-                if not sold and p.id not in purchased_map:
-                    continue
-                sold_qty      = float(sold['sold_qty']   if sold else 0)
-                total_sale    = float(sold['total_sale']  if sold else 0)
-                profit_val    = float(sold['profit']      if sold else 0)
-                purchased_qty = float(purchased_map.get(p.id, 0))
-                opening_qty   = float(p.stock_quantity) + sold_qty - purchased_qty
-                product_rows.append({
-                    'product_name'  : p.name,
-                    'opening_qty'   : opening_qty,
-                    'purchased_qty' : purchased_qty,
-                    'purchase_price': float(p.cost_price or 0),
-                    'sold_qty'      : sold_qty,
-                    'selling_price' : float(p.retail_price or 0),
-                    'closing_qty'   : float(p.stock_quantity or 0),
-                    'profit'        : profit_val,
-                    'total_sale'    : total_sale,
-                })
+        products = list(Product.objects.filter(store=store, is_active=True))
+        for p in products:
+            sold = sold_map.get(p.id)
+            sold_qty      = float(sold['sold_qty']   if sold else 0)
+            total_sale    = float(sold['total_sale']  if sold else 0)
+            profit_val    = float(sold['profit']      if sold else 0)
+            purchased_qty = float(purchased_map.get(p.id, 0))
+            
+            # Opening from first snapshot, else calculate
+            if p.id in first_snaps:
+                opening_qty = float(first_snaps[p.id].opening_qty or 0)
+            else:
+                opening_qty = float(p.stock_quantity) + sold_qty - purchased_qty
+                
+            # Closing from last snapshot, else current stock
+            if p.id in last_snaps:
+                closing_qty = float(last_snaps[p.id].closing_qty or 0)
+            else:
+                closing_qty = float(p.stock_quantity)
+
+            product_rows.append({
+                'product_name'  : p.name,
+                'opening_qty'   : opening_qty,
+                'purchased_qty' : purchased_qty,
+                'purchase_price': float(p.cost_price or 0),
+                'sold_qty'      : sold_qty,
+                'selling_price' : float(sold['selling_price'] if sold else p.retail_price or 0),
+                'closing_qty'   : closing_qty,
+                'profit'        : profit_val,
+                'total_sale'    : total_sale,
+            })
 
         # ── Summary ─────────────────────────────────────────────────────────────
         agg = SaleItem.objects.filter(
@@ -151,29 +134,15 @@ def daily_report_view(request):
         total_sales   = float(agg['sales']  or 0)
         gross_profit  = float(agg['profit'] or 0)
 
-        total_expenses = float(Expense.objects.filter(store=store, date=report_date).aggregate(t=Sum('amount'))['t'] or 0)
+        total_expenses = float(Expense.objects.filter(store=store, date__range=(from_date, to_date)).aggregate(t=Sum('amount'))['t'] or 0)
 
         net_profit        = gross_profit - total_expenses
         profit_percentage = float(net_profit / total_sales * 100) if total_sales else 0
-        
-        cached_data = {
-            'product_rows'     : product_rows,
-            'total_sales'      : total_sales,
-            'gross_profit'     : gross_profit,
-            'total_expenses'   : total_expenses,
-            'net_profit'       : net_profit,
-            'profit_percentage': profit_percentage,
-        }
-        try:
-            timeout = 3600 if report_date < datetime.date.today() else 60
-            cache.set(cache_key, cached_data, timeout=timeout)
-        except Exception:
-            pass
 
-    # Re-fetch specific expense lists (cheap, not easily cached as QS)
-    daily_expenses   = Expense.objects.filter(store=store, date=report_date, expense_type='DAILY')
-    monthly_expenses = Expense.objects.filter(store=store, date=report_date, expense_type='MONTHLY')
-    all_expenses     = Expense.objects.filter(store=store, date=report_date)
+    # Re-fetch specific expense lists (cheap)
+    daily_expenses   = Expense.objects.filter(store=store, date__range=(from_date, to_date), expense_type='DAILY')
+    monthly_expenses = Expense.objects.filter(store=store, date__range=(from_date, to_date), expense_type='MONTHLY')
+    all_expenses     = Expense.objects.filter(store=store, date__range=(from_date, to_date))
 
     all_stores = Store.objects.filter(is_active=True) if profile.is_superadmin else None
 
@@ -181,16 +150,17 @@ def daily_report_view(request):
         'profile'          : profile,
         'store'            : store,
         'all_stores'       : all_stores,
-        'report_date'      : report_date,
-        'product_rows'     : cached_data['product_rows'],
+        'from_date'        : from_date,
+        'to_date'          : to_date,
+        'product_rows'     : product_rows,
         'daily_expenses'   : daily_expenses,
         'monthly_expenses' : monthly_expenses,
         'all_expenses'     : all_expenses,
-        'total_sales'      : cached_data['total_sales'],
-        'gross_profit'     : cached_data['gross_profit'],
-        'total_expenses'   : cached_data['total_expenses'],
-        'net_profit'       : cached_data['net_profit'],
-        'profit_percentage': cached_data['profit_percentage'],
+        'total_sales'      : total_sales,
+        'gross_profit'     : gross_profit,
+        'total_expenses'   : total_expenses,
+        'net_profit'       : net_profit,
+        'profit_percentage': profit_percentage,
     })
 
 
@@ -390,13 +360,20 @@ def export_daily_excel(request):
     if not store or not (profile.is_superadmin or profile.is_owner or profile.is_subadmin):
         return redirect('dashboard')
 
-    date_str = request.GET.get('date', datetime.date.today().isoformat())
+    from_date_str = request.GET.get('from_date', '')
+    to_date_str = request.GET.get('to_date', '')
     try:
-        report_date = datetime.date.fromisoformat(date_str)
+        from_date = datetime.date.fromisoformat(from_date_str) if from_date_str else datetime.date.today()
     except ValueError:
-        report_date = datetime.date.today()
+        from_date = datetime.date.today()
+        
+    try:
+        to_date = datetime.date.fromisoformat(to_date_str) if to_date_str else from_date
+    except ValueError:
+        to_date = from_date
 
-    r_start, r_end = _date_range(report_date)
+    r_start = _date_range(from_date)[0]
+    r_end = _date_range(to_date)[1]
 
     sold_data = (
         SaleItem.objects.filter(sale__store=store, sale__created_at__range=(r_start, r_end))
@@ -411,48 +388,41 @@ def export_daily_excel(request):
     )
     purchased_map = {row['product_id']: row['purchased_qty'] for row in purchased_data}
 
-    snapshots = DailyStockSnapshot.objects.filter(store=store, date=report_date).select_related('product')
-    product_rows = []
-    if snapshots.exists():
-        for s in snapshots:
-            sold = sold_map.get(s.product_id, {})
-            product_rows.append({
-                'name'         : s.product.name,
-                'opening_qty'  : float(s.opening_qty),
-                'purchased_qty': float(purchased_map.get(s.product_id, s.purchased_qty)),
-                'cost_price'   : float(s.product.cost_price),
-                'sold_qty'     : float(sold.get('sold_qty') or s.sold_qty),
-                'sell_price'   : float(sold.get('selling_price') or s.product.retail_price),
-                'closing_qty'  : float(s.closing_qty),
-                'profit'       : float(sold.get('profit') or 0),
-                'total_sale'   : float(sold.get('total_sale') or 0),
-            })
-    else:
-        # No snapshot — build from live sales + stock data
-        products = Product.objects.filter(store=store, is_active=True)
-        for p in products:
-            sold = sold_map.get(p.id)
-            if not sold and p.id not in purchased_map:
-                continue
-            sold_qty      = float(sold['sold_qty'])   if sold else 0
-            total_sale    = float(sold['total_sale'])  if sold else 0
-            profit_val    = float(sold['profit'])      if sold else 0
-            purchased_qty = float(purchased_map.get(p.id, 0))
-            opening_qty   = float(p.stock_quantity) + sold_qty - purchased_qty
-            closing_qty   = float(p.stock_quantity)
-            product_rows.append({
-                'name'         : p.name,
-                'opening_qty'  : opening_qty,
-                'purchased_qty': purchased_qty,
-                'cost_price'   : float(p.cost_price),
-                'sold_qty'     : sold_qty,
-                'sell_price'   : float(p.retail_price),
-                'closing_qty'  : closing_qty,
-                'profit'       : profit_val,
-                'total_sale'   : total_sale,
-            })
+    first_snaps = {s.product_id: s for s in DailyStockSnapshot.objects.filter(store=store, date=from_date).select_related('product')}
+    last_snaps = {s.product_id: s for s in DailyStockSnapshot.objects.filter(store=store, date=to_date).select_related('product')}
 
-    expenses = Expense.objects.filter(store=store, date=report_date)
+    product_rows = []
+    products = Product.objects.filter(store=store, is_active=True)
+    for p in products:
+        sold = sold_map.get(p.id)
+        sold_qty      = float(sold['sold_qty'])   if sold else 0
+        total_sale    = float(sold['total_sale'])  if sold else 0
+        profit_val    = float(sold['profit'])      if sold else 0
+        purchased_qty = float(purchased_map.get(p.id, 0))
+        
+        if p.id in first_snaps:
+            opening_qty = float(first_snaps[p.id].opening_qty or 0)
+        else:
+            opening_qty = float(p.stock_quantity) + sold_qty - purchased_qty
+            
+        if p.id in last_snaps:
+            closing_qty = float(last_snaps[p.id].closing_qty or 0)
+        else:
+            closing_qty = float(p.stock_quantity)
+
+        product_rows.append({
+            'name'         : p.name,
+            'opening_qty'  : opening_qty,
+            'purchased_qty': purchased_qty,
+            'cost_price'   : float(p.cost_price or 0),
+            'sold_qty'     : sold_qty,
+            'sell_price'   : float(sold['selling_price'] if sold else p.retail_price or 0),
+            'closing_qty'  : closing_qty,
+            'profit'       : profit_val,
+            'total_sale'   : total_sale,
+        })
+
+    expenses = Expense.objects.filter(store=store, date__range=(from_date, to_date))
     total_expenses = expenses.aggregate(t=Sum('amount'))['t'] or 0
     total_sales    = sum(r['total_sale'] for r in product_rows)
     gross_profit   = sum(r['profit']     for r in product_rows)
@@ -461,12 +431,13 @@ def export_daily_excel(request):
 
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = f"Daily Report {report_date}"
+    date_label = from_date.strftime('%d %B %Y') if from_date == to_date else f"{from_date.strftime('%d %b')} - {to_date.strftime('%d %b %Y')}"
+    ws.title = f"Daily Report {date_label}"[:31]
 
     # Title
     ws.merge_cells('A1:J1')
     title_cell = ws['A1']
-    title_cell.value     = f"OCEANWAVES SEA FOODS — Daily Report: {report_date.strftime('%d %B %Y')}"
+    title_cell.value     = f"OCEANWAVES SEA FOODS — Report: {date_label}"
     title_cell.font      = Font(bold=True, size=14, color='1A5276', name='Calibri')
     title_cell.alignment = Alignment(horizontal='center')
 
@@ -531,7 +502,8 @@ def export_daily_excel(request):
     response = HttpResponse(
         content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
-    response['Content-Disposition'] = f'attachment; filename="daily_report_{report_date}.xlsx"'
+    file_label = from_date.isoformat() if from_date == to_date else f"{from_date.isoformat()}_to_{to_date.isoformat()}"
+    response['Content-Disposition'] = f'attachment; filename="report_{file_label}.xlsx"'
     wb.save(response)
     return response
 
