@@ -900,8 +900,8 @@ def save_bill(request):
                     else:
                         if not wc.is_credit_enabled:
                             return JsonResponse({'success': False, 'error': f'Credit is disabled for {cname}.'})
-                        if wc.has_unpaid_credit:
-                            return JsonResponse({'success': False, 'error': f'{cname} has an outstanding credit balance of ₹{wc.balance}. Please settle it before making new credit sales.'})
+                        # if wc.has_unpaid_credit:
+                        #     return JsonResponse({'success': False, 'error': f'{cname} has an outstanding credit balance of ₹{wc.balance}. Please settle it before making new credit sales.'})
                 
                 sale.wholesale_customer = wc
         else:
@@ -2095,8 +2095,8 @@ def wholesale_verify_otp(request):
                 else:
                     if not wc.is_credit_enabled:
                         return JsonResponse({'success': False, 'error': f'Credit is disabled for {cname}.'})
-                    if wc.has_unpaid_credit:
-                        return JsonResponse({'success': False, 'error': f'{cname} has an outstanding credit balance of ₹{wc.balance}. Please settle it before making new credit sales.'})
+                    # if wc.has_unpaid_credit:
+                    #     return JsonResponse({'success': False, 'error': f'{cname} has an outstanding credit balance of ₹{wc.balance}. Please settle it before making new credit sales.'})
             sale.wholesale_customer = wc
 
         subtotal      = sum(q * sp for _, q, sp in validated)
