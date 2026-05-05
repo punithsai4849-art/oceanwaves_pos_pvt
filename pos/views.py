@@ -1137,6 +1137,23 @@ def product_edit(request, pid):
             p.wholesale_price = request.POST.get('wholesale_price', p.wholesale_price)
 
         p.low_stock_alert = request.POST.get('low_stock_alert', p.low_stock_alert)
+        
+        new_stock = request.POST.get('stock_quantity')
+        if new_stock is not None and str(new_stock).strip() != '':
+            new_stock = decimal.Decimal(new_stock)
+            if new_stock != p.stock_quantity:
+                diff = new_stock - p.stock_quantity
+                p.stock_quantity = new_stock
+                StockLog.objects.create(
+                    store=p.store,
+                    product=p,
+                    movement='IN' if diff > 0 else 'OUT',
+                    quantity=abs(diff),
+                    balance=p.stock_quantity,
+                    reference='Manual Adjustment via Edit',
+                    created_by=request.user
+                )
+
         p.save()
         messages.success(request, f'"{p.name}" updated.')
     return redirect(f'/inventory/?store_id={p.store_id}' if profile.is_area_manager else 'inventory')
@@ -1161,12 +1178,16 @@ def product_restock(request, pid):
     store = p.store
     if request.method == 'POST':
         qty = decimal.Decimal(request.POST.get('add_quantity', 0))
-        p.stock_quantity += qty
-        p.save(update_fields=['stock_quantity'])
-        StockLog.objects.create(store=store, product=p, movement='IN',
-            quantity=qty, balance=p.stock_quantity,
-            reference=request.POST.get('note', 'Restock'),
-            created_by=request.user)
+        if qty != 0:
+            p.stock_quantity += qty
+            p.save(update_fields=['stock_quantity'])
+            StockLog.objects.create(
+                store=store, product=p, 
+                movement='IN' if qty > 0 else 'OUT',
+                quantity=abs(qty), balance=p.stock_quantity,
+                reference=request.POST.get('note', 'Stock Adjustment') or 'Stock Adjustment',
+                created_by=request.user
+            )
         messages.success(request, f'Added {qty} kg to {p.name}. New stock: {p.stock_quantity} kg')
     return redirect(f'/inventory/?store_id={store.id}' if profile.is_area_manager else 'inventory')
 

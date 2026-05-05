@@ -88,9 +88,9 @@
             {% else %}<span class="pill pill-green">OK</span>{% endif %}
           </td>
           <td style="display:flex;gap:5px;">
-            <button class="btn-icon-sm teal" title="Restock"
+            <button class="btn-icon-sm teal" title="Adjust Stock"
                 onclick="openRestock({{ p.id }},'{{ p.name|escapejs }}',{{ p.stock_quantity }})">
-              <i class="fas fa-plus-circle"></i>
+              <i class="fas fa-balance-scale"></i>
             </button>
             {% if profile.is_owner or profile.is_area_manager %}
             <button class="btn-icon-sm blue" title="Edit"
@@ -191,7 +191,10 @@
         <div class="fg"><label>Wholesale Price (₹)</label><input type="text" id="epWP_ro" readonly class="ro-input"></div>
       </div>
       {% endif %}
-      <div class="fg"><label>Low Stock Alert (kg)</label><input type="number" name="low_stock_alert" id="epAlert" step="0.001" min="0"></div>
+      <div class="frow frow2">
+        <div class="fg"><label>Current Stock (kg)</label><input type="number" name="stock_quantity" id="epStock" step="0.001"></div>
+        <div class="fg"><label>Low Stock Alert (kg)</label><input type="number" name="low_stock_alert" id="epAlert" step="0.001" min="0"></div>
+      </div>
       <div class="mactions">
         <button type="button" class="btn-secondary" onclick="closeModal('editProdModal')">Cancel</button>
         <button type="submit" class="btn-primary">Update</button>
@@ -203,15 +206,15 @@
 <!-- Restock -->
 <div class="modal-overlay" id="restockModal">
   <div class="modal modal-sm">
-    <div class="mhdr"><h3><i class="fas fa-plus-circle"></i> Restock</h3><button onclick="closeModal('restockModal')">×</button></div>
+    <div class="mhdr"><h3><i class="fas fa-balance-scale"></i> Adjust Stock</h3><button onclick="closeModal('restockModal')">×</button></div>
     <form id="restockForm" method="POST" class="mform">
       {% csrf_token %}
       <div class="restock-info"><p id="rsProdName"></p><p>Current: <strong id="rsCurrent"></strong> kg</p></div>
-      <div class="fg"><label>Add Quantity (kg) *</label><input type="number" name="add_quantity" id="rsQty" step="0.001" min="0.001" required placeholder="25.000"></div>
-      <div class="fg"><label>Note</label><input type="text" name="note" placeholder="e.g. Morning delivery"></div>
+      <div class="fg"><label>Adjustment (kg) *</label><input type="number" name="add_quantity" id="rsQty" step="0.001" required placeholder="e.g. 25.000 or -5.000"></div>
+      <div class="fg"><label>Note</label><input type="text" name="note" placeholder="e.g. Morning delivery, Spoilage"></div>
       <div class="mactions">
         <button type="button" class="btn-secondary" onclick="closeModal('restockModal')">Cancel</button>
-        <button type="submit" class="btn-primary"><i class="fas fa-plus"></i> Add Stock</button>
+        <button type="submit" class="btn-primary"><i class="fas fa-save"></i> Save Adjustment</button>
       </div>
     </form>
   </div>
@@ -381,6 +384,7 @@ function openEdit(id,name,cat,cp,rp,wp,stock,alert) {
     if(document.getElementById('epWP_ro')) document.getElementById('epWP_ro').value=wp;
   }
   
+  document.getElementById('epStock').value=stock;
   document.getElementById('epAlert').value=alert;
   document.getElementById('editProdForm').action=`/inventory/${id}/edit/`;
   openModal('editProdModal');
