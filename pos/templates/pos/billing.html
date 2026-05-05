@@ -162,10 +162,10 @@
         }
       }
       if (creditBtn) {
-        const disable = isExisting && (!creditEnabled || hasUnpaid);
+        const disable = isExisting && (!creditEnabled);
         creditBtn.disabled     = disable;
         creditBtn.style.opacity = disable ? '0.4' : '1';
-        creditBtn.title = !creditEnabled ? 'Credit disabled for this customer' : hasUnpaid ? 'Customer has unpaid credit' : 'Pay via Credit';
+        creditBtn.title = !creditEnabled ? 'Credit disabled for this customer' : 'Pay via Credit';
         if (disable && document.querySelector('.pm.active')?.getAttribute('data-m') === 'CREDIT') {
           document.querySelector('.pm[data-m="CASH"]').click();
         }
