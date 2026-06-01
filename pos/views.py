@@ -2445,10 +2445,14 @@ def credits_list(request):
     elif profile.is_area_manager or profile.is_wholesale_exec:
         accessible_store_ids = AreaManagerStore.objects.filter(manager=profile).values_list('store_id', flat=True)
         stores = Store.objects.filter(id__in=accessible_store_ids).order_by('name')
-        customers = customers.filter(credit_records__sale__store_id__in=accessible_store_ids).distinct()
+        customers = customers.filter(
+            Q(credit_records__sale__store_id__in=accessible_store_ids) | Q(store_id__in=accessible_store_ids)
+        ).distinct()
     elif profile.store:
         stores = stores.filter(id=profile.store.id)
-        customers = customers.filter(credit_records__sale__store=profile.store).distinct()
+        customers = customers.filter(
+            Q(credit_records__sale__store=profile.store) | Q(store=profile.store)
+        ).distinct()
     else:
         stores = Store.objects.none()
         customers = WholesaleCustomer.objects.none()
@@ -2605,11 +2609,22 @@ def credit_pay(request, cid):
     can_access = False
     if profile.is_superadmin:
         can_access = True
-    elif profile.store and profile.store == record.sale.store:
-        can_access = True
-    elif profile.is_area_manager or profile.is_wholesale_exec:
-        if AreaManagerStore.objects.filter(manager=profile, store=record.sale.store).exists():
+    elif record.is_external or not record.sale:
+        # External credit: check customer's registered store
+        if profile.store and (record.customer.store == profile.store or not record.customer.store):
             can_access = True
+        elif profile.is_area_manager or profile.is_wholesale_exec:
+            accessible_store_ids = AreaManagerStore.objects.filter(manager=profile).values_list('store_id', flat=True)
+            if record.customer.store_id in accessible_store_ids or not record.customer.store:
+                can_access = True
+    else:
+        # POS Sale credit: check sale's store
+        if profile.store and profile.store == record.sale.store:
+            can_access = True
+        elif profile.is_area_manager or profile.is_wholesale_exec:
+            accessible_store_ids = AreaManagerStore.objects.filter(manager=profile).values_list('store_id', flat=True)
+            if record.sale.store_id in accessible_store_ids:
+                can_access = True
             
     if not can_access:
         messages.error(request, 'Access denied to this record.')
