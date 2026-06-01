@@ -211,31 +211,32 @@ let pendingBillAction = 'print';
 async function saveBill(action = 'print') {
   pendingBillAction = action;
   if (!Object.keys(cart).length) { toast('Add items first!', 'error'); return; }
-  if (billType === 'RETAIL') {
-    // Retail: direct save, no approval needed
-    const btns = document.querySelectorAll('.btn-save');
-    btns.forEach(b => { b.disabled = true; });
-    const r = await _post(SAVE_URL);
-    btns.forEach(b => { b.disabled = false; });
-    if (r.success) {
-      toast(`✓ Bill #${r.bill_number} saved!`, 'success');
-      // Snapshot cart BEFORE resetBill() clears it
-      const soldItems = Object.entries(cart).map(([id, it]) => ({ product_id: parseInt(id), quantity: it.qty }));
-      if (action === 'whatsapp' && r.whatsapp_url) {
-        window.open(r.whatsapp_url, '_blank');
-      } else {
-        window.open(PRINT_BASE + r.bill_id + '/', '_blank');
-      }
-      updateStockInUI(soldItems);
-      resetBill();
-    } else { toast('❌ ' + r.error, 'error'); }
-  } else {
-    // Wholesale: validate then open PIN modal
-    if (!document.getElementById('custName')?.value?.trim()) {
-      toast('Customer name required for wholesale!', 'error');
-      document.getElementById('custName').focus(); return;
+  
+  // Wholesale: validate customer name is provided
+  if (billType === 'WHOLESALE' && !document.getElementById('custName')?.value?.trim()) {
+    toast('Customer name required for wholesale!', 'error');
+    document.getElementById('custName').focus(); return;
+  }
+
+  // Direct save for both Retail & Wholesale bills
+  const btns = document.querySelectorAll('.btn-save');
+  btns.forEach(b => { b.disabled = true; });
+  const r = await _post(SAVE_URL);
+  btns.forEach(b => { b.disabled = false; });
+  
+  if (r.success) {
+    toast(`✓ Bill #${r.bill_number} saved!`, 'success');
+    // Snapshot cart BEFORE resetBill() clears it
+    const soldItems = Object.entries(cart).map(([id, it]) => ({ product_id: parseInt(id), quantity: it.qty }));
+    if (action === 'whatsapp' && r.whatsapp_url) {
+      window.open(r.whatsapp_url, '_blank');
+    } else {
+      window.open(PRINT_BASE + r.bill_id + '/', '_blank');
     }
-    openPinModal();
+    updateStockInUI(soldItems);
+    resetBill();
+  } else { 
+    toast('❌ ' + r.error, 'error'); 
   }
 }
 

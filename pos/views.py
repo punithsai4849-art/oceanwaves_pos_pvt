@@ -853,8 +853,8 @@ def save_bill(request):
             product = get_object_or_404(Product, id=it['product_id'], store=store)
             qty = validated_decimal(it['quantity'], 0.001, 99999)
 
-            # Enforce role-based price control
-            can_manage_prices = profile.is_superadmin or profile.role in ('AREAMANAGER', 'WHOLESALE_EXEC')
+            # Anyone is allowed to change prices now
+            can_manage_prices = True
             
             # Use the price sent from the billing UI only if authorized
             client_price = it.get('selling_price')

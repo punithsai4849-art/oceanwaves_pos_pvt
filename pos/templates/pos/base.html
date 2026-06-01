@@ -76,21 +76,12 @@
       <i class="fas fa-file-invoice-dollar"></i><span> Credits</span>
     </a>
 
-    {% if profile.is_area_manager %}
-    <a href="{% url 'am_dashboard' %}" class="nav-link {% if 'am_dashboard' in request.resolver_match.url_name %}active{% endif %}">
-      <i class="fas fa-tachometer-alt"></i><span> My Dashboard</span>
-    </a>
-    {% endif %}
-
     {% if profile.is_superadmin %}
     <a href="{% url 'store_list' %}" class="nav-link {% if 'store' in request.resolver_match.url_name %}active{% endif %}">
       <i class="fas fa-store"></i><span> Stores</span>
     </a>
     <a href="{% url 'user_management' %}" class="nav-link {% if request.resolver_match.url_name == 'user_management' %}active{% endif %}">
       <i class="fas fa-users-cog"></i><span> Users</span>
-    </a>
-    <a href="{% url 'area_manager_list' %}" class="nav-link {% if 'area_manager' in request.resolver_match.url_name %}active{% endif %}">
-      <i class="fas fa-user-shield"></i><span> Area Mgrs</span>
     </a>
     {% endif %}
   </div>
@@ -165,20 +156,12 @@
     <a href="{% url 'credits_list' %}" class="mnd-link {% if 'credit' in request.resolver_match.url_name %}active{% endif %}" onclick="toggleMobileNav()">
       <i class="fas fa-file-invoice-dollar"></i> Credits
     </a>
-    {% if profile.is_area_manager %}
-    <a href="{% url 'am_dashboard' %}" class="mnd-link {% if 'am_dashboard' in request.resolver_match.url_name %}active{% endif %}" onclick="toggleMobileNav()">
-      <i class="fas fa-tachometer-alt"></i> My Dashboard
-    </a>
-    {% endif %}
     {% if profile.is_superadmin %}
     <a href="{% url 'store_list' %}" class="mnd-link {% if 'store' in request.resolver_match.url_name %}active{% endif %}" onclick="toggleMobileNav()">
       <i class="fas fa-store"></i> Stores
     </a>
     <a href="{% url 'user_management' %}" class="mnd-link {% if request.resolver_match.url_name == 'user_management' %}active{% endif %}" onclick="toggleMobileNav()">
       <i class="fas fa-users-cog"></i> Users
-    </a>
-    <a href="{% url 'area_manager_list' %}" class="mnd-link {% if 'area_manager' in request.resolver_match.url_name %}active{% endif %}" onclick="toggleMobileNav()">
-      <i class="fas fa-user-shield"></i> Area Managers
     </a>
     {% endif %}
   </div>

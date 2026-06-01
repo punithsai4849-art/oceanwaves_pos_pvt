@@ -57,7 +57,7 @@
             onclick="openEditUserWithData(this)">
             <i class="fas fa-edit"></i>
           </button>
-          {% if up.role in 'AREAMANAGER,WHOLESALE_EXEC' %}
+          {% if up.role == 'WHOLESALE_EXEC' %}
           <a href="{% url 'area_manager_list' %}" class="btn-icon-sm teal" title="Manage PIN & Stores">
             <i class="fas fa-user-shield"></i>
           </a>
@@ -107,17 +107,7 @@
           <li>❌ Cannot manage other stores</li>
         </ul>
       </div>
-      <div class="role-card" style="border-color:#0d9488;">
-        <h4 style="color:#0d9488;"><i class="fas fa-user-shield"></i> Area Manager</h4>
-        <ul>
-          <li>✅ Approves wholesale bills via PIN</li>
-          <li>✅ Can be assigned to multiple stores</li>
-          <li>✅ Has a secret 4–6 digit approval PIN</li>
-          <li>✅ All approvals are logged with name</li>
-          <li>❌ Cannot bill or access inventory</li>
-          <li>❌ Cannot view reports</li>
-        </ul>
-      </div>
+
       <div class="role-card st">
         <h4><i class="fas fa-user"></i> Staff</h4>
         <ul>
@@ -152,7 +142,6 @@
           <select name="role" id="createRoleSelect" required onchange="toggleStoreField('create');toggleEmpFields()">
             <option value="STAFF">👤 Staff</option>
             <option value="OWNER">👑 Store Owner</option>
-            <option value="AREAMANAGER">🛡️ Area Manager</option>
             <option value="WHOLESALE_EXEC">📦 Wholesale Exec</option>
             <option value="SUBADMIN">🛠️ Sub-Admin</option>
             <option value="SUPERADMIN">🔐 Super Admin</option>
@@ -238,7 +227,6 @@
           <select name="role" id="euRole" onchange="toggleStoreField('edit')">
             <option value="STAFF">👤 Staff</option>
             <option value="OWNER">👑 Store Owner</option>
-            <option value="AREAMANAGER">🛡️ Area Manager</option>
             <option value="WHOLESALE_EXEC">📦 Wholesale Exec</option>
             <option value="SUBADMIN">🛠️ Sub-Admin</option>
             <option value="SUPERADMIN">🔐 Super Admin</option>
@@ -272,7 +260,7 @@
       </div>
       <div class="am-note" id="editAMNote" style="display:none;">
         <i class="fas fa-info-circle"></i>
-        After saving, go to <a href="{% url 'area_manager_list' %}">Area Managers</a> page to assign stores and set PIN.
+        After saving, go to <a href="{% url 'area_manager_list' %}">Area Managers / Execs</a> page to assign stores.
       </div>
       <div class="fg checkbox-fg">
         <label><input type="checkbox" name="is_active" id="euActive"> User is Active</label>
@@ -317,13 +305,13 @@ function toggleStoreField(mode) {
   const permDiv  = document.getElementById(mode === 'create' ? 'createPermissionsDiv' : 'editPermissionsDiv');
   
   // Upper management and admins don't need a base store
-  const noStore  = (role === 'SUPERADMIN' || role === 'AREAMANAGER' || role === 'WHOLESALE_EXEC' || role === 'SUBADMIN');
+  const noStore  = (role === 'SUPERADMIN' || role === 'WHOLESALE_EXEC' || role === 'SUBADMIN');
   storeDiv.style.opacity = noStore ? '0.4' : '1';
   storeDiv.style.pointerEvents = noStore ? 'none' : '';
   
-  noteDiv.style.display = (role === 'AREAMANAGER' || role === 'WHOLESALE_EXEC') ? '' : 'none';
+  noteDiv.style.display = (role === 'WHOLESALE_EXEC') ? '' : 'none';
   if(noteDiv.style.display === '' && mode === 'create') {
-      noteDiv.innerHTML = '<i class="fas fa-info-circle"></i> After creating, go to <strong>Area Managers</strong> page to assign operating stores and set their approval PIN.';
+      noteDiv.innerHTML = '<i class="fas fa-info-circle"></i> After creating, go to <strong>Area Managers / Execs</strong> page to assign operating stores.';
   }
   permDiv.style.display = role === 'SUBADMIN' ? 'block' : 'none';
 }

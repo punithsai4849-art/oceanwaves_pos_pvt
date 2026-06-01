@@ -73,7 +73,7 @@
         </button>
         <button class="btb" id="btnWS" onclick="setBillType('WHOLESALE')">
           <i class="fas fa-industry"></i> Wholesale
-          <small>Optional GST · PIN Required</small>
+          <small>Optional GST · Direct Save</small>
         </button>
       </div>
     </div>
@@ -124,9 +124,9 @@
 
       <!-- Wholesale-only extra fields -->
       <div id="wsForm" class="ws-extra" style="display:none;">
-        <div class="ws-notice">
-          <i class="fas fa-shield-alt"></i>
-          Area Manager PIN required to complete wholesale bill
+        <div class="ws-notice" style="background:#ecfdf5; border-color:#a7f3d0; color:#065f46;">
+          <i class="fas fa-check-circle" style="color:#059669;"></i>
+          Wholesale pricing and A4 invoice details active
         </div>
         <div class="cic-input-wrap" style="margin-top:8px;">
           <i class="fas fa-file-invoice cic-icon"></i>
@@ -353,7 +353,7 @@ const WS_MANAGERS_URL  = '{% url "wholesale_managers" %}';
 const WS_REQUEST_OTP   = '{% url "wholesale_request_otp" %}';
 const WS_VERIFY_URL    = '{% url "wholesale_verify_otp" %}';
 const PRINT_BASE       = '/billing/print/';
-const CAN_EDIT_PRICE   = {% if profile.is_superadmin or profile.role == 'AREAMANAGER' or profile.role == 'WHOLESALE_EXEC' %}true{% else %}false{% endif %};
+const CAN_EDIT_PRICE   = true;
 </script>
 <script src="{% static 'pos/js/billing.js' %}?v=6"></script>
 <script>
