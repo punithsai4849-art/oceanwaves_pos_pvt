@@ -1081,7 +1081,8 @@ def product_add(request):
         messages.error(request, 'Not assigned to a store.')
         return redirect('employee_list')
 
-    can_manage_prices = profile.is_superadmin or profile.role in ('AREAMANAGER', 'WHOLESALE_EXEC')
+    # Anyone who can add a product can set prices
+    can_manage_prices = True
 
     if request.method == 'POST':
         p = Product(
@@ -1125,7 +1126,8 @@ def product_edit(request, pid):
     else:
         p = get_object_or_404(Product, id=pid, store=profile.store)
 
-    can_manage_prices = profile.is_superadmin or profile.role in ('AREAMANAGER', 'WHOLESALE_EXEC')
+    # Anyone who can edit a product can set prices
+    can_manage_prices = True
 
     if request.method == 'POST':
         p.name     = request.POST.get('name', p.name).strip()

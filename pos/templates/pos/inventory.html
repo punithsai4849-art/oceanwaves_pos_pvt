@@ -132,17 +132,11 @@
         </div>
       </div>
       <div class="price-section-label">💰 Pricing (all per kg)</div>
-      {% if profile.is_superadmin or profile.is_area_manager %}
       <div class="frow frow3">
         <div class="fg"><label>Cost Price (₹) *</label><input type="number" name="cost_price" step="0.01" min="0" required placeholder="120.00"></div>
         <div class="fg"><label>Retail Price (₹) *</label><input type="number" name="retail_price" step="0.01" min="0" required placeholder="150.00"></div>
         <div class="fg"><label>Wholesale Price (₹) *</label><input type="number" name="wholesale_price" step="0.01" min="0" required placeholder="140.00"></div>
       </div>
-      {% else %}
-      <div class="p-info-msg" style="background:#fef3c7; color:#92400e; padding:10px; border-radius:8px; font-size:12px; margin-bottom:12px;">
-        <i class="fas fa-info-circle"></i> Prices can only be set by an Area Manager or Admin.
-      </div>
-      {% endif %}
       <div class="frow">
         <div class="fg"><label>Initial Stock (kg)</label><input type="number" name="stock_quantity" step="0.001" min="0" value="0"></div>
         <div class="fg"><label>Low Stock Alert (kg)</label><input type="number" name="low_stock_alert" step="0.001" min="0" value="5"></div>
@@ -171,26 +165,11 @@
         </div>
       </div>
       <div class="price-section-label">💰 Pricing (all per kg)</div>
-      {% if profile.is_superadmin or profile.is_area_manager %}
       <div class="frow frow3">
-        <div class="fg"><label>Cost Price (₹) *</label><input type="number" name="cost_price" step="0.01" min="0" required placeholder="120.00"></div>
+        <div class="fg"><label>Cost Price (₹) *</label><input type="number" name="cost_price" id="epCP" step="0.01" min="0" required placeholder="120.00"></div>
         <div class="fg"><label>Retail Price (₹)</label><input type="number" name="retail_price" id="epRP" step="0.01" min="0"></div>
         <div class="fg"><label>Wholesale Price (₹)</label><input type="number" name="wholesale_price" id="epWP" step="0.01" min="0"></div>
       </div>
-      {% elif not profile.is_staff_role %}
-      <!-- Store Owner: sees prices but cannot edit cost price (read-only) -->
-      <div class="frow frow3">
-        <div class="fg"><label>Cost Price (₹)</label><input type="text" id="epCP_ro" readonly class="ro-input"></div>
-        <div class="fg"><label>Retail Price (₹)</label><input type="text" id="epRP_ro" readonly class="ro-input"></div>
-        <div class="fg"><label>Wholesale Price (₹)</label><input type="text" id="epWP_ro" readonly class="ro-input"></div>
-      </div>
-      {% else %}
-      <!-- Staff: only sees retail & wholesale, no cost price -->
-      <div class="frow frow2">
-        <div class="fg"><label>Retail Price (₹)</label><input type="text" id="epRP_ro" readonly class="ro-input"></div>
-        <div class="fg"><label>Wholesale Price (₹)</label><input type="text" id="epWP_ro" readonly class="ro-input"></div>
-      </div>
-      {% endif %}
       <div class="frow frow2">
         <div class="fg"><label>Current Stock (kg)</label><input type="number" name="stock_quantity" id="epStock" step="0.001"></div>
         <div class="fg"><label>Low Stock Alert (kg)</label><input type="number" name="low_stock_alert" id="epAlert" step="0.001" min="0"></div>
