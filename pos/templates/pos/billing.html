@@ -249,100 +249,6 @@
   </div>
 </div>
 
-<!-- ═══════════════════════════════════════════════════════
-     PIN APPROVAL MODAL
-═══════════════════════════════════════════════════════ -->
-<div class="modal-overlay" id="pinModal">
-  <div class="modal pin-modal">
-
-    <!-- Header -->
-    <div class="pin-modal-hdr">
-      <div class="pin-shield"><i class="fas fa-user-shield"></i></div>
-      <h2>Wholesale Approval</h2>
-      <p id="pinSubtitle">Select Area Manager &amp; enter PIN</p>
-    </div>
-
-    <!-- Bill summary strip -->
-    <div class="pin-bill-strip" id="pinBillStrip"></div>
-
-    <!-- Loading -->
-    <div class="pin-step" id="pinStepLoading">
-      <div class="pin-spinner"><i class="fas fa-spinner fa-spin"></i> Loading managers...</div>
-    </div>
-
-    <!-- Manager select + PIN entry -->
-    <div class="pin-step" id="pinStepForm" style="display:none">
-
-      <!-- Manager selector (shown if >1 AM) -->
-      <div id="managerSelectWrap" style="display:none" class="pin-section">
-        <label class="pin-label">Select Area Manager:</label>
-        <div class="manager-list" id="managerList"></div>
-      </div>
-
-      <div class="pin-actions" id="otpRequestActions" style="margin-bottom: 20px;">
-        <button type="button" class="btn-primary" id="btnRequestOTP" onclick="requestOTP()" style="width: 100%;">
-          <i class="fas fa-paper-plane"></i> Send OTP to Manager
-        </button>
-      </div>
-
-      <!-- OTP entry -->
-      <div class="pin-section" id="otpInputSection" style="display: none;">
-        <label class="pin-label">
-          <span id="pinLabel">Enter 6-Digit OTP:</span>
-          <span class="pin-attempts" id="pinAttempts"></span>
-        </label>
-
-        <!-- Big digit boxes optimised for fast entry -->
-        <div class="pin-boxes" id="pinBoxes">
-          <input type="password" inputmode="numeric" maxlength="1" class="pin-box" oninput="pinBoxInput(this,0)" onkeydown="pinBoxKey(event,0)">
-          <input type="password" inputmode="numeric" maxlength="1" class="pin-box" oninput="pinBoxInput(this,1)" onkeydown="pinBoxKey(event,1)">
-          <input type="password" inputmode="numeric" maxlength="1" class="pin-box" oninput="pinBoxInput(this,2)" onkeydown="pinBoxKey(event,2)">
-          <input type="password" inputmode="numeric" maxlength="1" class="pin-box" oninput="pinBoxInput(this,3)" onkeydown="pinBoxKey(event,3)">
-          <input type="password" inputmode="numeric" maxlength="1" class="pin-box pin-box-opt" oninput="pinBoxInput(this,4)" onkeydown="pinBoxKey(event,4)">
-          <input type="password" inputmode="numeric" maxlength="1" class="pin-box pin-box-opt" oninput="pinBoxInput(this,5)" onkeydown="pinBoxKey(event,5)">
-        </div>
-
-        <!-- Numeric keypad (touch-friendly) -->
-        <div class="numpad">
-          <button class="np-btn" onclick="npPress('1')">1</button>
-          <button class="np-btn" onclick="npPress('2')">2</button>
-          <button class="np-btn" onclick="npPress('3')">3</button>
-          <button class="np-btn" onclick="npPress('4')">4</button>
-          <button class="np-btn" onclick="npPress('5')">5</button>
-          <button class="np-btn" onclick="npPress('6')">6</button>
-          <button class="np-btn" onclick="npPress('7')">7</button>
-          <button class="np-btn" onclick="npPress('8')">8</button>
-          <button class="np-btn" onclick="npPress('9')">9</button>
-          <button class="np-btn np-clear" onclick="npClear()"><i class="fas fa-times"></i></button>
-          <button class="np-btn" onclick="npPress('0')">0</button>
-          <button class="np-btn np-back" onclick="npBackspace()"><i class="fas fa-backspace"></i></button>
-        </div>
-      </div> <!-- end otpInputSection -->
-
-      <div class="pin-feedback" id="pinFeedback" style="margin-bottom: 15px;"></div>
-
-      <div class="pin-actions">
-        <button class="btn-secondary" onclick="closePinModal()">Cancel</button>
-        <button class="btn-verify-pin" id="btnVerifyPin" onclick="verifyPin()">
-          <i class="fas fa-check-circle"></i> Verify & Save Bill
-        </button>
-      </div>
-    </div>
-
-    <!-- Error state -->
-    <div class="pin-step" id="pinStepError" style="display:none">
-      <div class="pin-err-box" id="pinErrMsg"></div>
-      <div class="pin-actions">
-        <button class="btn-secondary" onclick="closePinModal()">Cancel</button>
-        <button class="btn-primary"   onclick="openPinModal()">
-          <i class="fas fa-redo"></i> Retry
-        </button>
-      </div>
-    </div>
-
-  </div>
-</div>
-
 {% endblock %}
 
 {% block extra_js %}
@@ -355,7 +261,7 @@ const WS_VERIFY_URL    = '{% url "wholesale_verify_otp" %}';
 const PRINT_BASE       = '/billing/print/';
 const CAN_EDIT_PRICE   = true;
 </script>
-<script src="{% static 'pos/js/billing.js' %}?v=6"></script>
+<script src="{% static 'pos/js/billing.js' %}?v=7"></script>
 <script>
 // Mobile tab switcher for billing page
 function billingTab(tab) {
