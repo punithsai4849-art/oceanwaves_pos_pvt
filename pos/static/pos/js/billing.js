@@ -43,9 +43,21 @@ function updateGstLabels() {
   ['cgstLbl','sgstLbl'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = half; });
 }
 
+function getLocalDateString() {
+  const local = new Date();
+  const offset = local.getTimezoneOffset();
+  const localDate = new Date(local.getTime() - (offset * 60 * 1000));
+  return localDate.toISOString().split('T')[0];
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('gstRate')?.addEventListener('change', () => { updateGstLabels(); recalc(); });
   setBillType('RETAIL');
+  
+  const billDateEl = document.getElementById('billDate');
+  if (billDateEl) {
+    billDateEl.value = getLocalDateString();
+  }
 });
 
 // ── Payment ────────────────────────────────────────────────────
@@ -255,6 +267,7 @@ function getBillPayload(extra = {}) {
     customer_phone:   document.getElementById('custPhone')?.value?.trim()   || '',
     customer_gst:     document.getElementById('custGST')?.value?.trim()     || '',
     customer_address: document.getElementById('custAddress')?.value?.trim() || '',
+    bill_date:        document.getElementById('billDate')?.value            || '',
     ...extra,
   };
 }
@@ -274,6 +287,10 @@ function resetBill() {
   cart = {}; renderCart();
   if (document.getElementById('discountAmt')) document.getElementById('discountAmt').value = 0;
   ['custName','custPhone','custGST'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  const billDateEl = document.getElementById('billDate');
+  if (billDateEl) {
+    billDateEl.value = getLocalDateString();
+  }
 }
 
 // ══════════════════════════════════════════════════════════════

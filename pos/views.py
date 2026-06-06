@@ -874,6 +874,19 @@ def save_bill(request):
         sale = Sale(store=store, bill_type=bill_type, payment_mode=payment,
                     gst_rate=gst_rate, discount=discount, created_by=request.user)
         
+        bill_date_str = data.get('bill_date')
+        if bill_date_str:
+            try:
+                from django.utils.dateparse import parse_date
+                import datetime
+                parsed_date = parse_date(bill_date_str)
+                if parsed_date:
+                    current_time = timezone.now().time()
+                    naive_datetime = datetime.datetime.combine(parsed_date, current_time)
+                    sale.created_at = timezone.make_aware(naive_datetime, timezone.get_current_timezone())
+            except Exception as e:
+                pass
+        
         cname = data.get('customer_name', '').strip()
         cphone = data.get('customer_phone', '').strip()
         
@@ -932,7 +945,7 @@ def save_bill(request):
             from datetime import timedelta
             CreditRecord.objects.create(
                 customer=wc, sale=sale,
-                due_date=date.today() + timedelta(days=wc.credit_duration_days)
+                due_date=sale.created_at.date() + timedelta(days=wc.credit_duration_days)
             )
 
         # Create SaleItems + deduct stock
@@ -961,7 +974,8 @@ def save_bill(request):
             StockLog.objects.create(
                 store=store, product=product, movement='OUT',
                 quantity=qty, balance=product.stock_quantity,
-                reference=sale.bill_number, created_by=request.user
+                reference=sale.bill_number, created_by=request.user,
+                created_at=sale.created_at
             )
 
         # Build WhatsApp message & URL
