@@ -111,14 +111,14 @@
     <table class="data-table">
       <thead><tr>
         {% if not store %}<th>Store</th>{% endif %}
-        <th>Bill #</th><th>Time</th><th>Type</th><th>Customer</th><th>Payment</th><th>Total</th><th>Print</th>
+        <th>Bill #</th><th>Date &amp; Time</th><th>Type</th><th>Customer</th><th>Payment</th><th>Total</th><th>Print</th>
       </tr></thead>
       <tbody>
       {% for s in sales %}
       <tr>
         {% if not store %}<td>{{ s.store.name }}</td>{% endif %}
         <td><strong>{{ s.bill_number }}</strong></td>
-        <td>{{ s.created_at|date:"h:i A" }}</td>
+        <td>{{ s.created_at|date:"d-m-Y h:i A" }}</td>
         <td><span class="pill {% if s.bill_type == 'WHOLESALE' %}pill-blue{% else %}pill-green{% endif %}">{{ s.bill_type }}</span></td>
         <td>{{ s.customer_name|default:"Walk-in" }}</td>
         <td>{{ s.get_payment_mode_display }}</td>

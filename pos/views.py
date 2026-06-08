@@ -1362,7 +1362,7 @@ def export_excel(request):
     qs_filter = {'sale__created_at__range': (r_start, r_end)}
     if store:
         qs_filter['sale__store'] = store
-    items = SaleItem.objects.filter(**qs_filter).select_related('sale', 'sale__store')
+    items = SaleItem.objects.filter(**qs_filter).select_related('sale', 'sale__store').order_by('sale__created_at')
 
     wb  = openpyxl.Workbook()
     ws  = wb.active
@@ -2522,29 +2522,20 @@ def customer_credit_detail(request, customer_id):
             'items': r.sale.items.all() if r.sale else []
         })
     for p in payments:
+        import datetime
+        from django.utils import timezone
+        dt = timezone.make_aware(datetime.datetime.combine(p.date, datetime.time.min))
         ledger.append({
             'type': 'PAYMENT',
-            'date': p.date,
+            'date': dt,
             'amount': p.amount,
             'ref': f"PMT-{p.id}",
             'obj': p,
             'items': []
         })
     
-    # Sort helper to handle date vs datetime comparison
-    import datetime
-    from django.utils import timezone
-    def get_sort_dt(entry):
-        val = entry['date']
-        if isinstance(val, datetime.datetime):
-            return val
-        # Convert date to aware datetime at midnight
-        dt = datetime.datetime.combine(val, datetime.time.min)
-        if timezone.is_aware(records[0].created_at if records else timezone.now()):
-             return timezone.make_aware(dt)
-        return dt
-
-    ledger.sort(key=get_sort_dt, reverse=True)
+    # Sort ledger by date newest first
+    ledger.sort(key=lambda x: x['date'], reverse=True)
 
     return render(request, 'pos/customer_credit_detail.html', {
         'customer': customer,
@@ -2563,15 +2554,28 @@ def record_credit_payment(request, customer_id):
     mode = request.POST.get('payment_mode', 'CASH')
     note = request.POST.get('note', '')
     
+    payment_date_str = request.POST.get('payment_date')
+    
+    import datetime
+    from django.utils import timezone
+    pay_date = timezone.now().date()
+    
+    if payment_date_str:
+        try:
+            pay_date = datetime.datetime.strptime(payment_date_str, "%Y-%m-%d").date()
+        except ValueError:
+            pass
+            
     try:
         CreditPayment.objects.create(
             customer=customer,
             amount=amount,
             payment_mode=mode,
             note=note,
+            date=pay_date,
             created_by=request.user
         )
-        messages.success(request, f"Payment of ₹{amount} recorded for {customer.name}.")
+        messages.success(request, f"Payment of ₹{amount} recorded for {customer.name} on {pay_date.strftime('%d-%m-%Y')}.")
     except Exception as e:
         messages.error(request, f"Error: {e}")
         

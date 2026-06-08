@@ -138,6 +138,10 @@
           <option value="CARD">Card</option>
         </select>
       </div>
+      <div style="flex:1; min-width:150px;">
+        <label style="display:block; font-size:12px; font-weight:700; margin-bottom:4px;">Payment Date</label>
+        <input type="date" name="payment_date" id="pmtDate" required style="width:100%; padding:9px; border-radius:6px; border:1px solid #93c5fd; color: #0f2d3d; font-family: inherit;">
+      </div>
       <div style="flex:2; min-width:250px;">
         <label style="display:block; font-size:12px; font-weight:700; margin-bottom:4px;">Notes / Reference (Opt)</label>
         <input type="text" name="note" style="width:100%; padding:10px; border-radius:6px; border:1px solid #93c5fd;" placeholder="e.g. Paid via GPay">
@@ -146,4 +150,18 @@
     </form>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const pmtDate = document.getElementById('pmtDate');
+    if (pmtDate) {
+      const local = new Date();
+      const offset = local.getTimezoneOffset();
+      const localDate = new Date(local.getTime() - (offset * 60 * 1000));
+      pmtDate.value = localDate.toISOString().split('T')[0];
+    }
+  });
+</script>
 {% endblock %}
