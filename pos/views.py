@@ -1132,7 +1132,9 @@ def product_edit(request, pid):
     profile = get_profile(request.user)
 
     # Area Managers may not have profile.store — verify via AreaManagerStore
-    if profile.is_area_manager and not profile.store:
+    if profile.is_superadmin:
+        p = get_object_or_404(Product, id=pid)
+    elif profile.is_area_manager and not profile.store:
         p = get_object_or_404(Product, id=pid)
         has_access = AreaManagerStore.objects.filter(
             manager=profile, store=p.store
@@ -1183,7 +1185,9 @@ def product_edit(request, pid):
 def product_restock(request, pid):
     profile = get_profile(request.user)
 
-    if profile.is_area_manager and not profile.store:
+    if profile.is_superadmin:
+        p = get_object_or_404(Product, id=pid)
+    elif profile.is_area_manager and not profile.store:
         p = get_object_or_404(Product, id=pid)
         has_access = AreaManagerStore.objects.filter(
             manager=profile, store=p.store
@@ -1256,7 +1260,9 @@ def product_restock(request, pid):
 def product_delete(request, pid):
     profile = get_profile(request.user)
 
-    if profile.is_area_manager and not profile.store:
+    if profile.is_superadmin:
+        p = get_object_or_404(Product, id=pid)
+    elif profile.is_area_manager and not profile.store:
         p = get_object_or_404(Product, id=pid)
         has_access = AreaManagerStore.objects.filter(
             manager=profile, store=p.store
