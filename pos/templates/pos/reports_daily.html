@@ -230,7 +230,17 @@
           {% for e in all_expenses %}
           <tr>
             <td style="text-align:left;">{{ e.get_category_display }}</td>
-            <td style="text-align:left;color:var(--muted);font-size:12px;">{{ e.description }}</td>
+            <td style="text-align:left;color:var(--muted);font-size:12px;">
+              {{ e.description }}
+              {% if e.category == 'PURCHASE' %}
+                <div style="font-size: 11px; color: #64748b; margin-top: 4px; line-height: 1.4;">
+                  {% if e.product %}<strong>Product:</strong> {{ e.product.name }}<br>{% endif %}
+                  <strong>Qty:</strong> {{ e.quantity|default:"0" }} kg | 
+                  <strong>Price/kg:</strong> ₹{{ e.price_per_kg|default:"0" }} | 
+                  <strong>Transport:</strong> ₹{{ e.transportation_cost|default:"0" }}
+                </div>
+              {% endif %}
+            </td>
             <td>
               {% if e.expense_type == 'DAILY' %}
                 <span class="exp-badge exp-daily"><i class="fas fa-sun"></i> Daily</span>

@@ -1236,7 +1236,20 @@ def product_restock(request, pid):
             StockLog.objects.filter(id=log.id).update(created_at=target_dt)
             
             if log_expense and qty > 0:
-                cost_amount = qty * p.cost_price
+                price_per_kg_val = request.POST.get('price_per_kg')
+                transportation_cost_val = request.POST.get('transportation_cost')
+                
+                try:
+                    price_per_kg = decimal.Decimal(price_per_kg_val) if price_per_kg_val else p.cost_price
+                except (ValueError, TypeError, decimal.InvalidOperation):
+                    price_per_kg = p.cost_price
+
+                try:
+                    transportation_cost = decimal.Decimal(transportation_cost_val) if transportation_cost_val else decimal.Decimal(0)
+                except (ValueError, TypeError, decimal.InvalidOperation):
+                    transportation_cost = decimal.Decimal(0)
+
+                cost_amount = (qty * price_per_kg) + transportation_cost
                 if cost_amount > 0:
                     exp_desc = f"Stock Purchase: {qty} kg of {p.name}"
                     if note:
@@ -1248,7 +1261,11 @@ def product_restock(request, pid):
                         description=exp_desc,
                         amount=cost_amount,
                         date=target_date,
-                        created_by=request.user
+                        created_by=request.user,
+                        product=p,
+                        price_per_kg=price_per_kg,
+                        quantity=qty,
+                        transportation_cost=transportation_cost
                     )
                     
         messages.success(request, f'Added {qty} kg to {p.name}. New stock: {p.stock_quantity} kg')

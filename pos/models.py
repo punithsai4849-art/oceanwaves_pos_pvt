@@ -278,6 +278,12 @@ class Expense(models.Model):
     created_by   = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
     created_at   = models.DateTimeField(auto_now_add=True)
 
+    # Fields specifically for Stock Purchase (PURCHASE) category
+    product             = models.ForeignKey('Product', on_delete=models.SET_NULL, null=True, blank=True, related_name='expenses')
+    price_per_kg        = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    quantity            = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
+    transportation_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+
     def save(self, *args, **kwargs):
         # Auto-set expense_type based on category if not explicitly set
         if self.category in self.DAILY_CATEGORIES:

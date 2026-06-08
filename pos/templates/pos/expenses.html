@@ -59,7 +59,17 @@
         <td>{{ e.date|date:"d M Y" }}</td>
         {% if all_stores and not store_filter %}<td><span class="pill pill-blue" style="font-size:11px;">{{ e.store.name }}</span></td>{% endif %}
         <td><span class="cat-badge cat-other">{{ e.get_category_display }}</span></td>
-        <td>{{ e.description }}</td>
+        <td>
+          {{ e.description }}
+          {% if e.category == 'PURCHASE' %}
+            <div style="font-size: 11px; color: #64748b; margin-top: 4px; line-height: 1.4;">
+              {% if e.product %}<strong>Product:</strong> {{ e.product.name }}<br>{% endif %}
+              <strong>Qty:</strong> {{ e.quantity|default:"0" }} kg | 
+              <strong>Price/kg:</strong> ₹{{ e.price_per_kg|default:"0" }} | 
+              <strong>Transport:</strong> ₹{{ e.transportation_cost|default:"0" }}
+            </div>
+          {% endif %}
+        </td>
         <td class="tr"><strong>₹{{ e.amount }}</strong></td>
         <td>
           {% if e.bill_pdf %}

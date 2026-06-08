@@ -89,7 +89,7 @@
           </td>
           <td style="display:flex;gap:5px;">
             <button class="btn-icon-sm teal" title="Adjust Stock"
-                onclick="openRestock({{ p.id }},'{{ p.name|escapejs }}',{{ p.stock_quantity }})">
+                onclick="openRestock({{ p.id }},'{{ p.name|escapejs }}',{{ p.stock_quantity }},{{ p.cost_price|default:0 }})">
               <i class="fas fa-balance-scale"></i>
             </button>
             {% if profile.is_owner or profile.is_area_manager %}
@@ -193,6 +193,11 @@
       <div class="fg" id="logExpenseGroup" style="display: flex; align-items: center; gap: 8px; margin: 10px 0;">
         <input type="checkbox" name="log_expense" id="logExpense" checked style="width: 18px; height: 18px; margin: 0; cursor: pointer;">
         <label for="logExpense" style="margin: 0; font-size: 13px; font-weight: 700; cursor: pointer; color: #1e293b;">Log as Expense (Stock Purchase)</label>
+      </div>
+      <!-- Stock Purchase Extra Fields -->
+      <div id="expenseFields" style="background: #f8fafc; padding: 12px; border-radius: 6px; border: 1px solid #e2e8f0; margin-bottom: 12px;">
+        <div class="fg" style="margin-bottom: 8px;"><label style="font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 700;">Price per kg (₹) *</label><input type="number" name="price_per_kg" id="rsPricePerKg" step="0.01" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #cbd5e1;"></div>
+        <div class="fg" style="margin-bottom: 0;"><label style="font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 700;">Transportation Cost (₹)</label><input type="number" name="transportation_cost" id="rsTransport" step="0.01" value="0" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #cbd5e1;"></div>
       </div>
       <div class="fg"><label>Adjustment Date *</label><input type="date" name="restock_date" id="restockDate" required style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #cbd5e1;"></div>
       <div class="fg"><label>Note</label><input type="text" name="note" placeholder="e.g. Morning delivery, Spoilage"></div>
@@ -373,12 +378,28 @@ function openEdit(id,name,cat,cp,rp,wp,stock,alert) {
   document.getElementById('editProdForm').action=`/inventory/${id}/edit/`;
   openModal('editProdModal');
 }
-function openRestock(id,name,stock) {
+function openRestock(id,name,stock,cp) {
   {% if profile.is_superadmin or profile.is_area_manager %}
   // Admins and Area Managers can directly restock
   document.getElementById('rsProdName').textContent=name;
   document.getElementById('rsCurrent').textContent=stock;
   document.getElementById('rsQty').value='';
+  
+  if (document.getElementById('rsPricePerKg')) {
+    document.getElementById('rsPricePerKg').value = cp || 0;
+  }
+  if (document.getElementById('rsTransport')) {
+    document.getElementById('rsTransport').value = 0;
+  }
+  
+  const logExpenseChk = document.getElementById('logExpense');
+  if (logExpenseChk) {
+    logExpenseChk.checked = true;
+  }
+  const expenseFieldsDiv = document.getElementById('expenseFields');
+  if (expenseFieldsDiv) {
+    expenseFieldsDiv.style.display = 'block';
+  }
   
   const dateField = document.getElementById('restockDate');
   if (dateField) {
@@ -402,6 +423,16 @@ function confirmDel(id,name) {
   openModal('delProdModal');
 }
 document.querySelectorAll('.modal-overlay').forEach(o=>o.addEventListener('click',e=>{if(e.target===o)o.classList.remove('active');}));
+
+const logExpenseElement = document.getElementById('logExpense');
+if (logExpenseElement) {
+  logExpenseElement.addEventListener('change', function() {
+    const fields = document.getElementById('expenseFields');
+    if (fields) {
+      fields.style.display = this.checked ? 'block' : 'none';
+    }
+  });
+}
 
 // ── Barcode Scanner ──────────────────────────────────────────────────────────
 let scanStream = null;
