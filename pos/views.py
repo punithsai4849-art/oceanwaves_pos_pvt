@@ -944,10 +944,12 @@ def save_bill(request):
 
         if payment == 'CREDIT' and wc:
             from datetime import timedelta
-            CreditRecord.objects.create(
+            cr = CreditRecord.objects.create(
                 customer=wc, sale=sale,
                 due_date=sale.created_at.date() + timedelta(days=wc.credit_duration_days)
             )
+            # Force created_at to match the backdated sale timestamp
+            CreditRecord.objects.filter(id=cr.id).update(created_at=sale.created_at)
 
         # Create SaleItems + deduct stock
         for product, qty, sp in validated:
@@ -2132,10 +2134,12 @@ def wholesale_verify_otp(request):
         
         if payment == 'CREDIT' and wc:
             from datetime import timedelta
-            CreditRecord.objects.create(
+            cr = CreditRecord.objects.create(
                 customer=wc, sale=sale,
-                due_date=date.today() + timedelta(days=wc.credit_duration_days)
+                due_date=sale.created_at.date() + timedelta(days=wc.credit_duration_days)
             )
+            # Force created_at to match the backdated sale timestamp
+            CreditRecord.objects.filter(id=cr.id).update(created_at=sale.created_at)
 
         # Create SaleItems + deduct stock + log
         for product, qty, sp in validated:
