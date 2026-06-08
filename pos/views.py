@@ -1197,16 +1197,56 @@ def product_restock(request, pid):
     store = p.store
     if request.method == 'POST':
         qty = decimal.Decimal(request.POST.get('add_quantity', 0))
+        restock_date_str = request.POST.get('restock_date')
+        log_expense = request.POST.get('log_expense') == 'on'
+        note = request.POST.get('note', '').strip()
+        
+        import datetime
+        from django.utils import timezone
+        
+        target_date = timezone.now().date()
+        target_dt = timezone.now()
+        
+        if restock_date_str:
+            try:
+                parsed_date = datetime.date.fromisoformat(restock_date_str)
+                target_date = parsed_date
+                current_time = timezone.now().time()
+                naive_dt = datetime.datetime.combine(parsed_date, current_time)
+                target_dt = timezone.make_aware(naive_dt, timezone.get_current_timezone())
+            except ValueError:
+                pass
+
         if qty != 0:
             p.stock_quantity += qty
             p.save(update_fields=['stock_quantity'])
-            StockLog.objects.create(
+            
+            log = StockLog.objects.create(
                 store=store, product=p, 
                 movement='IN' if qty > 0 else 'OUT',
                 quantity=abs(qty), balance=p.stock_quantity,
-                reference=request.POST.get('note', 'Stock Adjustment') or 'Stock Adjustment',
+                reference=note or ('Stock In' if qty > 0 else 'Stock Out'),
                 created_by=request.user
             )
+            # Force created_at timestamp
+            StockLog.objects.filter(id=log.id).update(created_at=target_dt)
+            
+            if log_expense and qty > 0:
+                cost_amount = qty * p.cost_price
+                if cost_amount > 0:
+                    exp_desc = f"Stock Purchase: {qty} kg of {p.name}"
+                    if note:
+                        exp_desc += f" ({note})"
+                    
+                    Expense.objects.create(
+                        store=store,
+                        category='PURCHASE',
+                        description=exp_desc,
+                        amount=cost_amount,
+                        date=target_date,
+                        created_by=request.user
+                    )
+                    
         messages.success(request, f'Added {qty} kg to {p.name}. New stock: {p.stock_quantity} kg')
     return redirect(f'/inventory/?store_id={store.id}' if profile.is_area_manager else 'inventory')
 

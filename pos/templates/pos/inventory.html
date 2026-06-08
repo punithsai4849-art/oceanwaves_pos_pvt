@@ -190,6 +190,11 @@
       {% csrf_token %}
       <div class="restock-info"><p id="rsProdName"></p><p>Current: <strong id="rsCurrent"></strong> kg</p></div>
       <div class="fg"><label>Adjustment (kg) *</label><input type="number" name="add_quantity" id="rsQty" step="0.001" required placeholder="e.g. 25.000 or -5.000"></div>
+      <div class="fg" id="logExpenseGroup" style="display: flex; align-items: center; gap: 8px; margin: 10px 0;">
+        <input type="checkbox" name="log_expense" id="logExpense" checked style="width: 18px; height: 18px; margin: 0; cursor: pointer;">
+        <label for="logExpense" style="margin: 0; font-size: 13px; font-weight: 700; cursor: pointer; color: #1e293b;">Log as Expense (Stock Purchase)</label>
+      </div>
+      <div class="fg"><label>Adjustment Date *</label><input type="date" name="restock_date" id="restockDate" required style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #cbd5e1;"></div>
       <div class="fg"><label>Note</label><input type="text" name="note" placeholder="e.g. Morning delivery, Spoilage"></div>
       <div class="mactions">
         <button type="button" class="btn-secondary" onclick="closeModal('restockModal')">Cancel</button>
@@ -374,6 +379,15 @@ function openRestock(id,name,stock) {
   document.getElementById('rsProdName').textContent=name;
   document.getElementById('rsCurrent').textContent=stock;
   document.getElementById('rsQty').value='';
+  
+  const dateField = document.getElementById('restockDate');
+  if (dateField) {
+    const local = new Date();
+    const offset = local.getTimezoneOffset();
+    const localDate = new Date(local.getTime() - (offset * 60 * 1000));
+    dateField.value = localDate.toISOString().split('T')[0];
+  }
+
   document.getElementById('restockForm').action=`/inventory/${id}/restock/`;
   openModal('restockModal');
   {% else %}
