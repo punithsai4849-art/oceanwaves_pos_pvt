@@ -865,9 +865,10 @@ def save_bill(request):
             else:
                 sp = product.retail_price
 
-            if product.stock_quantity < qty:
-                return JsonResponse({'success': False,
-                    'error': f'Insufficient stock for {product.name}. Available: {product.stock_quantity} kg'})
+            # Temporarily disabled strict stock check for manual backdating of sales data
+            # if product.stock_quantity < qty:
+            #     return JsonResponse({'success': False,
+            #         'error': f'Insufficient stock for {product.name}. Available: {product.stock_quantity} kg'})
             validated.append((product, qty, sp))
 
         # Build Sale
