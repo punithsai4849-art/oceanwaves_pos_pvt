@@ -288,7 +288,7 @@ class Command(BaseCommand):
 
         sold_list = list(SaleItem.objects.filter(
             sale__created_at__range=(m_start, m_end)
-        ).values('sale__store_id', 'sale__store__name', 'product_id', 'product__name', 'product__cost_price', 'product__retail_price', 'product__stock_quantity').annotate(
+        ).values('sale__store_id', 'sale__store__name', 'product_id', 'product__name', 'sale__bill_type', 'product__cost_price', 'product__retail_price', 'product__stock_quantity').annotate(
             sold_qty=Sum('quantity'),
             total_sale=Sum('total_amount'),
             profit=Sum('profit')
@@ -303,26 +303,36 @@ class Command(BaseCommand):
         last_snaps = {(s.store_id, s.product_id): s.closing_qty for s in DailyStockSnapshot.objects.filter(date=last_snapshot_date)}
 
         row_idx = 4
+        displayed_products = set()
         for s_idx, row in enumerate(sold_list):
             sid = row['sale__store_id']
             pid = row['product_id']
             sname = row['sale__store__name']
             pname = row['product__name']
+            bill_type = row['sale__bill_type']
             sold_qty = float(row['sold_qty'] or 0)
             total_sale = float(row['total_sale'] or 0)
             profit_val = float(row['profit'] or 0)
             purchased_qty = float(purchased_map.get((sid, pid), 0))
             
-            opening_qty = float(first_snaps.get((sid, pid), 0))
-            closing_qty = float(last_snaps.get((sid, pid), 0))
-            if not closing_qty:
-                closing_qty = float(row['product__stock_quantity'] or 0)
+            bill_type_label = "Retail" if bill_type == 'RETAIL' else "Wholesale"
+            
+            if (sid, pid) not in displayed_products:
+                opening_qty = float(first_snaps.get((sid, pid), 0))
+                closing_qty = float(last_snaps.get((sid, pid), 0))
+                if not closing_qty:
+                    closing_qty = float(row['product__stock_quantity'] or 0)
+                displayed_products.add((sid, pid))
+            else:
+                opening_qty = 0
+                closing_qty = 0
+                purchased_qty = 0
             
             cost_price = float(row['product__cost_price'] or 0)
             sell_price = float(row['product__retail_price'] or 0)
 
             data = [
-                sname, pname, opening_qty, purchased_qty, sold_qty, closing_qty,
+                sname, f"{pname} ({bill_type_label})", opening_qty, purchased_qty, sold_qty, closing_qty,
                 cost_price, sell_price, total_sale, profit_val
             ]
             for col_idx, val in enumerate(data, 1):

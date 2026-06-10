@@ -74,14 +74,16 @@ def daily_report_view(request):
         # Sold quantities per product today
         sold_list = list(SaleItem.objects
             .filter(sale__store=store, sale__created_at__range=(r_start, r_end))
-            .values('product_id', 'product__name', 'selling_price')
+            .values('product_id', 'product__name', 'sale__bill_type', 'selling_price')
             .annotate(
                 sold_qty   = Sum('quantity'),
                 total_sale = Sum('total_amount'),
                 profit     = Sum('profit'),
                 total_cost = Sum('total_cost'),
             ))
-        sold_map = {row['product_id']: row for row in sold_list}
+        sold_map = {}
+        for row in sold_list:
+            sold_map.setdefault(row['product_id'], []).append(row)
 
         # Purchased (stock-in) quantities per product today
         purchased_list = list(StockLog.objects
@@ -97,35 +99,51 @@ def daily_report_view(request):
         product_rows = []
         products = list(Product.objects.filter(store=store, is_active=True))
         for p in products:
-            sold = sold_map.get(p.id)
-            sold_qty      = float(sold['sold_qty']   if sold else 0)
-            total_sale    = float(sold['total_sale']  if sold else 0)
-            profit_val    = float(sold['profit']      if sold else 0)
+            solds = sold_map.get(p.id, [])
             purchased_qty = float(purchased_map.get(p.id, 0))
             
-            # Opening from first snapshot, else calculate
             if p.id in first_snaps:
-                opening_qty = float(first_snaps[p.id].opening_qty or 0)
+                opening_qty_prod = float(first_snaps[p.id].opening_qty or 0)
             else:
-                opening_qty = float(p.stock_quantity) + sold_qty - purchased_qty
+                total_sold_for_prod = sum(float(x['sold_qty']) for x in solds)
+                opening_qty_prod = float(p.stock_quantity) + total_sold_for_prod - purchased_qty
                 
-            # Closing from last snapshot, else current stock
             if p.id in last_snaps:
-                closing_qty = float(last_snaps[p.id].closing_qty or 0)
+                closing_qty_prod = float(last_snaps[p.id].closing_qty or 0)
             else:
-                closing_qty = float(p.stock_quantity)
-
-            product_rows.append({
-                'product_name'  : p.name,
-                'opening_qty'   : opening_qty,
-                'purchased_qty' : purchased_qty,
-                'purchase_price': float(p.cost_price or 0),
-                'sold_qty'      : sold_qty,
-                'selling_price' : float(sold['selling_price'] if sold else p.retail_price or 0),
-                'closing_qty'   : closing_qty,
-                'profit'        : profit_val,
-                'total_sale'    : total_sale,
-            })
+                closing_qty_prod = float(p.stock_quantity)
+                
+            if not solds:
+                product_rows.append({
+                    'product_name'  : p.name,
+                    'opening_qty'   : opening_qty_prod,
+                    'purchased_qty' : purchased_qty,
+                    'purchase_price': float(p.cost_price or 0),
+                    'sold_qty'      : 0,
+                    'selling_price' : float(p.retail_price or 0),
+                    'closing_qty'   : closing_qty_prod,
+                    'profit'        : 0,
+                    'total_sale'    : 0,
+                })
+            else:
+                for idx, sold in enumerate(solds):
+                    sold_qty      = float(sold['sold_qty'])
+                    total_sale    = float(sold['total_sale'])
+                    profit_val    = float(sold['profit'])
+                    
+                    bill_type_label = "Retail" if sold['sale__bill_type'] == 'RETAIL' else "Wholesale"
+                    
+                    product_rows.append({
+                        'product_name'  : f"{p.name} ({bill_type_label})",
+                        'opening_qty'   : opening_qty_prod if idx == 0 else 0,
+                        'purchased_qty' : purchased_qty if idx == 0 else 0,
+                        'purchase_price': float(p.cost_price or 0) if idx == 0 else 0,
+                        'sold_qty'      : sold_qty,
+                        'selling_price' : float(sold['selling_price']),
+                        'closing_qty'   : closing_qty_prod if idx == 0 else 0,
+                        'profit'        : profit_val,
+                        'total_sale'    : total_sale,
+                    })
 
         # ── Summary ─────────────────────────────────────────────────────────────
         agg = SaleItem.objects.filter(
@@ -200,7 +218,7 @@ def monthly_report_view(request):
         # ── Product-level aggregated sales ──────────────────────────────────────
         sold_list = list(SaleItem.objects
             .filter(sale__store=store, sale__created_at__range=(m_start, m_end))
-            .values('product_id', 'product__name', 'product__cost_price', 'product__retail_price')
+            .values('product_id', 'product__name', 'sale__bill_type', 'product__cost_price', 'product__retail_price')
             .annotate(
                 sold_qty   = Sum('quantity'),
                 total_sale = Sum('total_amount'),
@@ -231,25 +249,35 @@ def monthly_report_view(request):
         }
 
         product_rows = []
+        displayed_products = set()
         for row in sold_list:
             pid           = row['product_id']
             pname         = row['product__name']
+            bill_type     = row['sale__bill_type']
             sold_qty      = float(row['sold_qty'] or 0)
             total_sale    = float(row['total_sale'] or 0)
             profit_val    = float(row['profit'] or 0)
-            purchased_qty = float(purchased_map.get(pid, 0))
-
-            opening_qty = float(first_snaps[pid].opening_qty if pid in first_snaps else 0)
-            closing_qty = float(last_snaps[pid].closing_qty  if pid in last_snaps  else 0)
+            
+            bill_type_label = "Retail" if bill_type == 'RETAIL' else "Wholesale"
+            
+            if pid not in displayed_products:
+                opening_qty   = float(first_snaps[pid].opening_qty if pid in first_snaps else 0)
+                closing_qty   = float(last_snaps[pid].closing_qty  if pid in last_snaps  else 0)
+                purchased_qty = float(purchased_map.get(pid, 0))
+                displayed_products.add(pid)
+            else:
+                opening_qty   = 0
+                closing_qty   = 0
+                purchased_qty = 0
 
             cost_price    = float(row['product__cost_price'] or 0)
             selling_price = float(row['product__retail_price'] or 0)
 
             product_rows.append({
-                'product_name'  : pname,
+                'product_name'  : f"{pname} ({bill_type_label})",
                 'opening_qty'   : opening_qty,
                 'purchased_qty' : purchased_qty,
-                'purchase_price': cost_price,
+                'purchase_price': cost_price if purchased_qty > 0 or opening_qty > 0 else 0,
                 'sold_qty'      : sold_qty,
                 'selling_price' : selling_price,
                 'closing_qty'   : closing_qty,
@@ -377,10 +405,12 @@ def export_daily_excel(request):
 
     sold_data = (
         SaleItem.objects.filter(sale__store=store, sale__created_at__range=(r_start, r_end))
-        .values('product_id', 'product__name', 'selling_price')
+        .values('product_id', 'product__name', 'sale__bill_type', 'selling_price')
         .annotate(sold_qty=Sum('quantity'), total_sale=Sum('total_amount'), profit=Sum('profit'))
     )
-    sold_map = {row['product_id']: row for row in sold_data}
+    sold_map = {}
+    for row in sold_data:
+        sold_map.setdefault(row['product_id'], []).append(row)
 
     purchased_data = (
         StockLog.objects.filter(store=store, movement='IN', created_at__range=(r_start, r_end))
@@ -394,33 +424,51 @@ def export_daily_excel(request):
     product_rows = []
     products = Product.objects.filter(store=store, is_active=True)
     for p in products:
-        sold = sold_map.get(p.id)
-        sold_qty      = float(sold['sold_qty'])   if sold else 0
-        total_sale    = float(sold['total_sale'])  if sold else 0
-        profit_val    = float(sold['profit'])      if sold else 0
+        solds = sold_map.get(p.id, [])
         purchased_qty = float(purchased_map.get(p.id, 0))
         
         if p.id in first_snaps:
-            opening_qty = float(first_snaps[p.id].opening_qty or 0)
+            opening_qty_prod = float(first_snaps[p.id].opening_qty or 0)
         else:
-            opening_qty = float(p.stock_quantity) + sold_qty - purchased_qty
+            total_sold_for_prod = sum(float(x['sold_qty']) for x in solds)
+            opening_qty_prod = float(p.stock_quantity) + total_sold_for_prod - purchased_qty
             
         if p.id in last_snaps:
-            closing_qty = float(last_snaps[p.id].closing_qty or 0)
+            closing_qty_prod = float(last_snaps[p.id].closing_qty or 0)
         else:
-            closing_qty = float(p.stock_quantity)
-
-        product_rows.append({
-            'name'         : p.name,
-            'opening_qty'  : opening_qty,
-            'purchased_qty': purchased_qty,
-            'cost_price'   : float(p.cost_price or 0),
-            'sold_qty'     : sold_qty,
-            'sell_price'   : float(sold['selling_price'] if sold else p.retail_price or 0),
-            'closing_qty'  : closing_qty,
-            'profit'       : profit_val,
-            'total_sale'   : total_sale,
-        })
+            closing_qty_prod = float(p.stock_quantity)
+            
+        if not solds:
+            product_rows.append({
+                'name'         : p.name,
+                'opening_qty'  : opening_qty_prod,
+                'purchased_qty': purchased_qty,
+                'cost_price'   : float(p.cost_price or 0),
+                'sold_qty'     : 0,
+                'sell_price'   : float(p.retail_price or 0),
+                'closing_qty'  : closing_qty_prod,
+                'profit'       : 0,
+                'total_sale'   : 0,
+            })
+        else:
+            for idx, sold in enumerate(solds):
+                sold_qty      = float(sold['sold_qty'])
+                total_sale    = float(sold['total_sale'])
+                profit_val    = float(sold['profit'])
+                
+                bill_type_label = "Retail" if sold['sale__bill_type'] == 'RETAIL' else "Wholesale"
+                
+                product_rows.append({
+                    'name'         : f"{p.name} ({bill_type_label})",
+                    'opening_qty'  : opening_qty_prod if idx == 0 else 0,
+                    'purchased_qty': purchased_qty if idx == 0 else 0,
+                    'cost_price'   : float(p.cost_price or 0) if idx == 0 else 0,
+                    'sold_qty'     : sold_qty,
+                    'sell_price'   : float(sold['selling_price']),
+                    'closing_qty'  : closing_qty_prod if idx == 0 else 0,
+                    'profit'       : profit_val,
+                    'total_sale'   : total_sale,
+                })
 
     expenses = Expense.objects.filter(store=store, date__range=(from_date, to_date)).exclude(category='PURCHASE')
     total_expenses = expenses.aggregate(t=Sum('amount'))['t'] or 0
@@ -532,7 +580,7 @@ def export_monthly_excel(request):
 
     sold_data = (
         SaleItem.objects.filter(sale__store=store, sale__created_at__range=(m_start, m_end))
-        .values('product_id', 'product__name', 'product__cost_price', 'product__retail_price', 'product__stock_quantity')
+        .values('product_id', 'product__name', 'sale__bill_type', 'product__cost_price', 'product__retail_price', 'product__stock_quantity')
         .annotate(sold_qty=Sum('quantity'), total_sale=Sum('total_amount'), profit=Sum('profit'))
     )
     purchased_data = (
@@ -544,20 +592,33 @@ def export_monthly_excel(request):
     last_snaps  = {s.product_id: s for s in DailyStockSnapshot.objects.filter(store=store, date=datetime.date(year, month, calendar.monthrange(year, month)[1]))}
 
     product_rows = []
+    displayed_products = set()
     for row in sold_data:
         pid = row['product_id']
+        bill_type = row['sale__bill_type']
         cost_price = float(row['product__cost_price'] or 0)
         sell_price = float(row['product__retail_price'] or 0)
         
+        bill_type_label = "Retail" if bill_type == 'RETAIL' else "Wholesale"
+        
+        if pid not in displayed_products:
+            opening_qty   = float(first_snaps[pid].opening_qty if pid in first_snaps else 0)
+            purchased_qty = float(purchased_map.get(pid, 0))
+            closing_qty   = float(last_snaps[pid].closing_qty if pid in last_snaps else float(row['product__stock_quantity'] or 0))
+            displayed_products.add(pid)
+        else:
+            opening_qty   = 0
+            purchased_qty = 0
+            closing_qty   = 0
+            
         product_rows.append({
-            'name'         : row['product__name'],
-            'opening_qty'  : float(first_snaps[pid].opening_qty) if pid in first_snaps else 0,
-            'purchased_qty': float(purchased_map.get(pid, 0)),
-            'cost_price'   : cost_price,
+            'name'         : f"{row['product__name']} ({bill_type_label})",
+            'opening_qty'  : opening_qty,
+            'purchased_qty': purchased_qty,
+            'cost_price'   : cost_price if opening_qty > 0 or purchased_qty > 0 else 0,
             'sold_qty'     : float(row['sold_qty'] or 0),
             'sell_price'   : sell_price,
-            'closing_qty'  : float(last_snaps[pid].closing_qty) if pid in last_snaps else (
-                             float(row['product__stock_quantity'] or 0)),
+            'closing_qty'  : closing_qty,
             'profit'       : float(row['profit'] or 0),
             'total_sale'   : float(row['total_sale'] or 0),
         })
