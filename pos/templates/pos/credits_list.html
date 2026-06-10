@@ -20,7 +20,19 @@
       <p>Summary of outstanding balances and credit history</p>
     </div>
     <div style="display:flex; gap:12px; align-items:center;">
+       {% if stores %}
+       <form method="GET" style="display:flex; gap:10px; align-items:center; margin:0;">
+         {% if q %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
+         <select name="store_filter" onchange="this.form.submit()" style="padding: 8px; border-radius: 6px; border: 1px solid #d1d5db;">
+           <option value="">All Stores/Credits</option>
+           {% for s in stores %}
+           <option value="{{ s.id }}" {% if store_filter == s.id|stringformat:"s" %}selected{% endif %}>{{ s.name }}</option>
+           {% endfor %}
+         </select>
+       </form>
+       {% endif %}
        <form method="GET" class="search-box">
+         {% if store_filter %}<input type="hidden" name="store_filter" value="{{ store_filter }}">{% endif %}
          <i class="fas fa-search" style="color:#9ca3af;"></i>
          <input type="text" name="q" value="{{ q }}" placeholder="Search customer...">
        </form>

@@ -2570,6 +2570,7 @@ def approval_history(request):
 def wholesale_customers(request):
     profile = get_profile(request.user)
     from .models import Store, AreaManagerStore, WholesaleCustomer
+    from django.db.models import Q
     
     # Get accessible stores
     stores = Store.objects.filter(is_active=True).order_by('name')
@@ -2581,11 +2582,22 @@ def wholesale_customers(request):
         else:
             stores = Store.objects.none()
 
-    customers = WholesaleCustomer.objects.all()
+    if profile.is_superadmin:
+        customers = WholesaleCustomer.objects.all()
+    elif profile.is_area_manager or profile.is_wholesale_exec:
+        accessible_store_ids = AreaManagerStore.objects.filter(manager=profile).values_list('store_id', flat=True)
+        customers = WholesaleCustomer.objects.filter(
+            Q(store_id__in=accessible_store_ids) | Q(sales__store_id__in=accessible_store_ids)
+        ).distinct()
+    elif profile.store:
+        customers = WholesaleCustomer.objects.filter(
+            Q(store=profile.store) | Q(sales__store=profile.store)
+        ).distinct()
+    else:
+        customers = WholesaleCustomer.objects.none()
     
     store_filter = request.GET.get('store_filter')
     if store_filter and store_filter.isdigit():
-        from django.db.models import Q
         customers = customers.filter(Q(store_id=store_filter) | Q(sales__store_id=store_filter)).distinct()
         
     customers = customers.order_by('-created_at')
@@ -2603,7 +2615,6 @@ def wholesale_customer_add(request):
     from .models import WholesaleCustomer
     profile = get_profile(request.user)
 
-        
     if request.method == 'POST':
         name = request.POST.get('name', '').strip()
         if WholesaleCustomer.objects.filter(name__iexact=name).exists():
@@ -2612,10 +2623,25 @@ def wholesale_customer_add(request):
             store = profile.store
             store_id = request.POST.get('store_id')
             if store_id:
-                from .models import Store
-                store = Store.objects.filter(id=store_id).first()
+                from .models import Store, AreaManagerStore
+                # Ensure they actually have access to this store
+                if profile.is_superadmin:
+                    store = Store.objects.filter(id=store_id).first()
+                elif profile.is_area_manager or profile.is_wholesale_exec:
+                    accessible_store_ids = AreaManagerStore.objects.filter(manager=profile).values_list('store_id', flat=True)
+                    if int(store_id) in accessible_store_ids:
+                        store = Store.objects.filter(id=store_id).first()
+                    else:
+                        store = None
+                elif profile.store and int(store_id) == profile.store.id:
+                    store = profile.store
+                else:
+                    store = None
             else:
-                store = None
+                if not profile.is_superadmin and profile.store:
+                    store = profile.store
+                else:
+                    store = None
 
             wc = WholesaleCustomer.objects.create(
                 name=name,
@@ -2637,7 +2663,6 @@ def wholesale_customer_edit(request, cid):
     from .models import WholesaleCustomer
     profile = get_profile(request.user)
 
-        
     c = get_object_or_404(WholesaleCustomer, id=cid)
     if request.method == 'POST':
         name = request.POST.get('name', c.name).strip()
@@ -2664,10 +2689,20 @@ def wholesale_customer_edit(request, cid):
         
         store_id = request.POST.get('store_id')
         if store_id:
-            from .models import Store
-            c.store = Store.objects.filter(id=store_id).first()
+            from .models import Store, AreaManagerStore
+            if profile.is_superadmin:
+                c.store = Store.objects.filter(id=store_id).first()
+            elif profile.is_area_manager or profile.is_wholesale_exec:
+                accessible_store_ids = AreaManagerStore.objects.filter(manager=profile).values_list('store_id', flat=True)
+                if int(store_id) in accessible_store_ids:
+                    c.store = Store.objects.filter(id=store_id).first()
+            elif profile.store and int(store_id) == profile.store.id:
+                c.store = profile.store
         else:
-            c.store = None
+            if not profile.is_superadmin and profile.store:
+                c.store = profile.store
+            else:
+                c.store = None
 
         c.save()
         messages.success(request, 'Customer updated.')
@@ -2701,6 +2736,7 @@ def wholesale_customer_delete(request, cid):
 def credits_list(request):
     profile = get_profile(request.user)
     from .models import Store, AreaManagerStore, WholesaleCustomer
+    from django.db.models import Q
     
     # Summary of balances per customer
     customers = WholesaleCustomer.objects.filter(is_credit_enabled=True).prefetch_related('credit_records', 'payments')
@@ -2724,6 +2760,12 @@ def credits_list(request):
         stores = Store.objects.none()
         customers = WholesaleCustomer.objects.none()
 
+    store_filter = request.GET.get('store_filter')
+    if store_filter and store_filter.isdigit():
+        customers = customers.filter(
+            Q(store_id=store_filter) | Q(credit_records__sale__store_id=store_filter)
+        ).distinct()
+
     q_search = request.GET.get('q', '').strip()
     if q_search:
         customers = customers.filter(Q(name__icontains=q_search) | Q(phone__icontains=q_search))
@@ -2745,7 +2787,8 @@ def credits_list(request):
         'summaries': customer_summaries,
         'stores': stores,
         'profile': profile,
-        'q': q_search
+        'q': q_search,
+        'store_filter': store_filter,
     })
 
 
