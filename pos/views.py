@@ -10,7 +10,7 @@ from django.views.decorators.http import require_POST
 import json, decimal
 from datetime import date, timedelta
 
-from .models import Store, UserProfile, Product, Sale, SaleItem, StockLog, Expense, AreaManagerStore, WholesaleApproval, Employee, PaySlip, StockRequest, Notification
+from .models import Store, UserProfile, Product, Sale, SaleItem, StockLog, Expense, AreaManagerStore, WholesaleApproval, Employee, PaySlip, StockRequest, Notification, StockPurchaseItem
 from django.core.mail import send_mail
 from django.conf import settings
 from django.core.cache import cache
