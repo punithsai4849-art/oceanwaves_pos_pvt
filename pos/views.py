@@ -1343,13 +1343,21 @@ def reports(request):
     
     product_summary = list(items_qs.values('product_name').annotate(
         qty=Sum('quantity'),
+        retail_qty=Sum('quantity', filter=Q(sale__bill_type='RETAIL')),
+        wholesale_qty=Sum('quantity', filter=Q(sale__bill_type='WHOLESALE')),
         sales=Sum('total_amount'),
         cost=Sum('total_cost'),
         profit=Sum('profit')
     ).order_by('-qty'))
 
     agg = items_qs.aggregate(
-        total_sales=Sum('total_amount'), total_cost=Sum('total_cost'), total_profit=Sum('profit'))
+        total_sales=Sum('total_amount'),
+        total_cost=Sum('total_cost'),
+        total_profit=Sum('profit'),
+        total_qty=Sum('quantity'),
+        total_retail_qty=Sum('quantity', filter=Q(sale__bill_type='RETAIL')),
+        total_wholesale_qty=Sum('quantity', filter=Q(sale__bill_type='WHOLESALE'))
+    )
 
     sale_filter = {'created_at__range': (r_start, r_end)}
     if store:
@@ -1360,7 +1368,10 @@ def reports(request):
     pay_breakdown  = list(Sale.objects.filter(**sale_filter).values('payment_mode').annotate(
         count=Count('id'), total=Sum('grand_total')).order_by('-total'))
     type_breakdown = list(Sale.objects.filter(**sale_filter).values('bill_type').annotate(
-        count=Count('id'), total=Sum('grand_total')).order_by('-total'))
+        count=Count('id'),
+        total_qty=Sum('items__quantity'),
+        total=Sum('grand_total')
+    ).order_by('-total'))
 
     expenses_filter = {'date__range': (from_date, to_date)}
     if store:
@@ -1372,6 +1383,9 @@ def reports(request):
     total_sales   = float(agg['total_sales']  or 0)
     total_cost    = float(agg['total_cost']   or 0)
     total_profit  = float(agg['total_profit'] or 0)
+    total_qty     = float(agg['total_qty'] or 0)
+    total_retail_qty = float(agg['total_retail_qty'] or 0)
+    total_wholesale_qty = float(agg['total_wholesale_qty'] or 0)
     net_profit    = total_profit - total_expense
 
     ctx = {
@@ -1384,6 +1398,9 @@ def reports(request):
         'total_sales':     total_sales,
         'total_cost':      total_cost,
         'total_profit':    total_profit,
+        'total_qty':       total_qty,
+        'total_retail_qty': total_retail_qty,
+        'total_wholesale_qty': total_wholesale_qty,
         'pay_breakdown':   pay_breakdown,
         'type_breakdown':  type_breakdown,
         'expenses':        expenses,

@@ -58,11 +58,16 @@
     <div class="dash-card">
       <div class="dc-header"><h3><i class="fas fa-tag"></i> Bill Type Breakdown</h3></div>
       <table class="mini-table">
-        <thead><tr><th>Type</th><th>Bills</th><th>Amount</th></tr></thead>
+        <thead><tr><th>Type</th><th>Bills</th><th>Qty Sold</th><th>Amount</th></tr></thead>
         <tbody>
         {% for t in type_breakdown %}
-        <tr><td><span class="pill {% if t.bill_type == 'WHOLESALE' %}pill-blue{% else %}pill-green{% endif %}">{{ t.bill_type }}</span></td><td>{{ t.count }}</td><td>₹{{ t.total|floatformat:2 }}</td></tr>
-        {% empty %}<tr><td colspan="3" class="empty-mini">No data</td></tr>{% endfor %}
+        <tr>
+          <td><span class="pill {% if t.bill_type == 'WHOLESALE' %}pill-blue{% else %}pill-green{% endif %}">{{ t.bill_type }}</span></td>
+          <td>{{ t.count }}</td>
+          <td>{{ t.total_qty|default:0|floatformat:2 }} kg</td>
+          <td>₹{{ t.total|floatformat:2 }}</td>
+        </tr>
+        {% empty %}<tr><td colspan="4" class="empty-mini">No data</td></tr>{% endfor %}
         </tbody>
       </table>
     </div>
@@ -144,7 +149,11 @@
     <div class="tc-header"><h3><i class="fas fa-fish"></i> Product Sales Summary</h3></div>
     <table class="data-table">
       <thead><tr>
-        <th>Product</th><th class="tr">Qty Sold</th><th class="tr">Total Sales</th>
+        <th>Product</th>
+        <th class="tr">Retail Qty (kg)</th>
+        <th class="tr">Wholesale Qty (kg)</th>
+        <th class="tr">Total Qty (kg)</th>
+        <th class="tr">Total Sales</th>
         {% if not profile.is_staff_role %}
         <th class="tr">Total Cost</th><th class="tr">Gross Profit</th>
         {% endif %}
@@ -153,6 +162,8 @@
       {% for item in product_summary %}
       <tr>
         <td><strong>{{ item.product_name }}</strong></td>
+        <td class="tr">{{ item.retail_qty|default:0|floatformat:3 }}</td>
+        <td class="tr">{{ item.wholesale_qty|default:0|floatformat:3 }}</td>
         <td class="tr">{{ item.qty|floatformat:3 }}</td>
         <td class="tr">₹{{ item.sales|floatformat:2 }}</td>
         {% if not profile.is_staff_role %}
@@ -163,7 +174,9 @@
       {% endfor %}
       <tr class="totals-row">
         <td><strong>TOTALS</strong></td>
-        <td></td>
+        <td class="tr"><strong>{{ total_retail_qty|floatformat:3 }}</strong></td>
+        <td class="tr"><strong>{{ total_wholesale_qty|floatformat:3 }}</strong></td>
+        <td class="tr"><strong>{{ total_qty|floatformat:3 }}</strong></td>
         <td class="tr"><strong>₹{{ total_sales|floatformat:2 }}</strong></td>
         {% if not profile.is_staff_role %}
         <td class="tr"><strong>₹{{ total_cost|floatformat:2 }}</strong></td>
