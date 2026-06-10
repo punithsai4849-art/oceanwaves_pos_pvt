@@ -284,6 +284,12 @@ class Expense(models.Model):
     quantity            = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
     transportation_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0)
 
+    STATUS_CHOICES = [
+        ('PAID', 'Paid'),
+        ('PENDING', 'Pending'),
+    ]
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='PAID')
+
     def save(self, *args, **kwargs):
         # Auto-set expense_type based on category if not explicitly set
         if self.category in self.DAILY_CATEGORIES:
@@ -297,6 +303,18 @@ class Expense(models.Model):
 
     def __str__(self):
         return f"[{self.store.name}] {self.category} ₹{self.amount}"
+
+
+class StockPurchaseItem(models.Model):
+    expense = models.ForeignKey(Expense, on_delete=models.CASCADE, related_name='purchase_items')
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='purchase_items')
+    quantity = models.DecimalField(max_digits=10, decimal_places=3, help_text="Total KG received")
+    price_per_kg = models.DecimalField(max_digits=10, decimal_places=2)
+    total_price = models.DecimalField(max_digits=12, decimal_places=2)
+
+    def __str__(self):
+        return f"{self.product.name} - {self.quantity} kg @ {self.price_per_kg}/kg"
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────

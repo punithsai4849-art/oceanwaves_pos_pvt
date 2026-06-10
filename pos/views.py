@@ -1512,31 +1512,152 @@ def expense_add(request):
             return redirect('expenses_page')
         store = get_object_or_404(Store, id=store_id)
     
-    exp = Expense(
-        store=store,
-        category=request.POST.get('category', 'OTHER'),
-        description=request.POST.get('description', '').strip(),
-        amount=request.POST.get('amount', 0),
-        date=request.POST.get('date', date.today()),
-        created_by=request.user,
-    )
+    category = request.POST.get('category', 'OTHER')
+    date_val = request.POST.get('date', date.today())
+    status = request.POST.get('status', 'PAID')
     
-    bill = request.FILES.get('bill_pdf')
-    if bill:
-        import magic
-        file_magic = magic.from_buffer(bill.read(2048), mime=True)
-        bill.seek(0)
+    # Handle bulk stock purchase as a special layout/logic
+    if category == 'PURCHASE':
+        product_ids = request.POST.getlist('item_product_id[]')
+        quantities = request.POST.getlist('item_quantity[]')
+        prices = request.POST.getlist('item_price[]')
+        transport_cost_str = request.POST.get('transportation_cost', '0')
         
-        allowed_mimes = ['application/pdf', 'image/jpeg', 'image/png']
-        if file_magic not in allowed_mimes:
-            messages.error(request, 'Invalid file type. Only PDF, JPG, PNG are allowed.')
+        try:
+            transportation_cost = decimal.Decimal(transport_cost_str)
+        except (ValueError, TypeError, decimal.InvalidOperation):
+            transportation_cost = decimal.Decimal(0)
+            
+        items = []
+        total_items_amount = decimal.Decimal(0)
+        
+        for pid, qty_str, price_str in zip(product_ids, quantities, prices):
+            if not pid or not qty_str or not price_str:
+                continue
+            try:
+                p = Product.objects.get(id=pid, store=store)
+                qty = decimal.Decimal(qty_str)
+                price = decimal.Decimal(price_str)
+                if qty > 0 and price >= 0:
+                    total_price = qty * price
+                    total_items_amount += total_price
+                    items.append({
+                        'product': p,
+                        'quantity': qty,
+                        'price_per_kg': price,
+                        'total_price': total_price
+                    })
+            except (Product.DoesNotExist, ValueError, TypeError, decimal.InvalidOperation):
+                continue
+                
+        if not items:
+            messages.error(request, 'Please add at least one valid product for stock purchase.')
             return redirect('expenses_page')
             
-        exp.bill_pdf = bill
+        grand_total = total_items_amount + transportation_cost
         
-    exp.save()
-    messages.success(request, 'Expense recorded.')
-    return redirect('expenses_page')
+        # Build description
+        desc_parts = []
+        for it in items[:3]:
+            desc_parts.append(f"{it['quantity']} kg of {it['product'].name}")
+        desc = "Stock Purchase: " + ", ".join(desc_parts)
+        if len(items) > 3:
+            desc += f" and {len(items)-3} more items"
+            
+        exp = Expense(
+            store=store,
+            category='PURCHASE',
+            status=status,
+            description=desc,
+            amount=grand_total,
+            transportation_cost=transportation_cost,
+            date=date_val,
+            created_by=request.user,
+        )
+        
+        bill = request.FILES.get('bill_pdf')
+        if bill:
+            import magic
+            file_magic = magic.from_buffer(bill.read(2048), mime=True)
+            bill.seek(0)
+            allowed_mimes = ['application/pdf', 'image/jpeg', 'image/png']
+            if file_magic not in allowed_mimes:
+                messages.error(request, 'Invalid file type. Only PDF, JPG, PNG are allowed.')
+                return redirect('expenses_page')
+            exp.bill_pdf = bill
+            
+        exp.save()
+        
+        # Save StockPurchaseItems, update stock, and create StockLogs with correct datetime
+        target_dt = timezone.now()
+        if date_val:
+            try:
+                import datetime
+                if isinstance(date_val, str):
+                    parsed_date = datetime.date.fromisoformat(date_val)
+                else:
+                    parsed_date = date_val
+                current_time = timezone.now().time()
+                naive_dt = datetime.datetime.combine(parsed_date, current_time)
+                target_dt = timezone.make_aware(naive_dt, timezone.get_current_timezone())
+            except ValueError:
+                pass
+                
+        for it in items:
+            StockPurchaseItem.objects.create(
+                expense=exp,
+                product=it['product'],
+                quantity=it['quantity'],
+                price_per_kg=it['price_per_kg'],
+                total_price=it['total_price']
+            )
+            # Update stock
+            p = it['product']
+            p.stock_quantity += it['quantity']
+            p.save(update_fields=['stock_quantity'])
+            
+            # Stock Log
+            log = StockLog.objects.create(
+                store=store,
+                product=p,
+                movement='IN',
+                quantity=it['quantity'],
+                balance=p.stock_quantity,
+                reference=f"Stock Purchase (Expense #{exp.id})",
+                created_by=request.user
+            )
+            # Override created_at to match chosen purchase date
+            StockLog.objects.filter(id=log.id).update(created_at=target_dt)
+            
+        messages.success(request, f'Stock Purchase recorded. Total Amount: ₹{grand_total}')
+        return redirect('expenses_page')
+        
+    else:
+        # Standard expense behavior
+        exp = Expense(
+            store=store,
+            category=category,
+            description=request.POST.get('description', '').strip(),
+            amount=request.POST.get('amount', 0),
+            date=date_val,
+            created_by=request.user,
+            status=status,
+        )
+        
+        bill = request.FILES.get('bill_pdf')
+        if bill:
+            import magic
+            file_magic = magic.from_buffer(bill.read(2048), mime=True)
+            bill.seek(0)
+            allowed_mimes = ['application/pdf', 'image/jpeg', 'image/png']
+            if file_magic not in allowed_mimes:
+                messages.error(request, 'Invalid file type. Only PDF, JPG, PNG are allowed.')
+                return redirect('expenses_page')
+            exp.bill_pdf = bill
+            
+        exp.save()
+        messages.success(request, 'Expense recorded.')
+        return redirect('expenses_page')
 
 
 @require_POST
@@ -1547,7 +1668,20 @@ def expense_delete(request, expense_id):
     if not profile.is_owner:
         messages.error(request, 'Access denied.')
         return redirect('dashboard')
-    exp = get_object_or_404(Expense, id=expense_id, store=profile.store)
+        
+    if profile.is_superadmin:
+        exp = get_object_or_404(Expense, id=expense_id)
+    else:
+        exp = get_object_or_404(Expense, id=expense_id, store=profile.store)
+        
+    # Revert stock and delete stock logs if it is a stock purchase
+    if exp.category == 'PURCHASE':
+        for item in exp.purchase_items.all():
+            p = item.product
+            p.stock_quantity -= item.quantity
+            p.save(update_fields=['stock_quantity'])
+        StockLog.objects.filter(store=exp.store, reference=f"Stock Purchase (Expense #{exp.id})").delete()
+
     import os
     if exp.bill_pdf and hasattr(exp.bill_pdf, 'path'):
         try:
@@ -1560,6 +1694,26 @@ def expense_delete(request, expense_id):
     log_event(request, 'EXPENSE_DELETED', f'expense={exp.id} amount={exp.amount}')
     exp.delete()
     messages.success(request, 'Expense deleted.')
+    return redirect('expenses_page')
+
+
+@require_POST
+@login_required
+@require_profile
+def expense_mark_paid(request, expense_id):
+    profile = get_profile(request.user)
+    if not profile.is_owner:
+        messages.error(request, 'Access denied.')
+        return redirect('dashboard')
+        
+    if profile.is_superadmin:
+        exp = get_object_or_404(Expense, id=expense_id)
+    else:
+        exp = get_object_or_404(Expense, id=expense_id, store=profile.store)
+        
+    exp.status = 'PAID'
+    exp.save(update_fields=['status'])
+    messages.success(request, 'Expense marked as Paid.')
     return redirect('expenses_page')
 
 
@@ -1593,6 +1747,19 @@ def expenses_page(request):
     day_expenses = expenses.filter(date=report_date)
     day_total    = day_expenses.aggregate(t=Sum('amount'))['t'] or 0
     
+    # Serialize active products grouped by store for dropdown selections
+    import json
+    from django.core.serializers.json import DjangoJSONEncoder
+    products_qs = Product.objects.filter(is_active=True).values('id', 'name', 'store_id', 'cost_price')
+    products_by_store = {}
+    for p in products_qs:
+        products_by_store.setdefault(p['store_id'], []).append({
+            'id': p['id'],
+            'name': p['name'],
+            'cost_price': float(p['cost_price'] or 0)
+        })
+    products_json = json.dumps(products_by_store, cls=DjangoJSONEncoder)
+    
     return render(request, 'pos/expenses.html', {
         'profile':     profile, 
         'all_stores':  all_stores,
@@ -1602,6 +1769,7 @@ def expenses_page(request):
         'report_date': report_date,
         'total':       total,
         'day_total':   day_total,
+        'products_json': products_json,
     })
 
 

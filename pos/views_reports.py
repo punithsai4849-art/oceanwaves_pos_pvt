@@ -134,15 +134,15 @@ def daily_report_view(request):
         total_sales   = float(agg['sales']  or 0)
         gross_profit  = float(agg['profit'] or 0)
 
-        total_expenses = float(Expense.objects.filter(store=store, date__range=(from_date, to_date)).aggregate(t=Sum('amount'))['t'] or 0)
+        total_expenses = float(Expense.objects.filter(store=store, date__range=(from_date, to_date)).exclude(category='PURCHASE').aggregate(t=Sum('amount'))['t'] or 0)
 
         net_profit        = gross_profit - total_expenses
         profit_percentage = float(net_profit / total_sales * 100) if total_sales else 0
 
     # Re-fetch specific expense lists (cheap)
     daily_expenses   = Expense.objects.filter(store=store, date__range=(from_date, to_date), expense_type='DAILY')
-    monthly_expenses = Expense.objects.filter(store=store, date__range=(from_date, to_date), expense_type='MONTHLY')
-    all_expenses     = Expense.objects.filter(store=store, date__range=(from_date, to_date))
+    monthly_expenses = Expense.objects.filter(store=store, date__range=(from_date, to_date), expense_type='MONTHLY').exclude(category='PURCHASE')
+    all_expenses     = Expense.objects.filter(store=store, date__range=(from_date, to_date)).exclude(category='PURCHASE')
 
     all_stores = Store.objects.filter(is_active=True) if profile.is_superadmin else None
 
@@ -422,7 +422,7 @@ def export_daily_excel(request):
             'total_sale'   : total_sale,
         })
 
-    expenses = Expense.objects.filter(store=store, date__range=(from_date, to_date))
+    expenses = Expense.objects.filter(store=store, date__range=(from_date, to_date)).exclude(category='PURCHASE')
     total_expenses = expenses.aggregate(t=Sum('amount'))['t'] or 0
     total_sales    = sum(r['total_sale'] for r in product_rows)
     gross_profit   = sum(r['profit']     for r in product_rows)

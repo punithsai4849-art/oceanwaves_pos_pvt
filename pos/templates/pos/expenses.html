@@ -49,63 +49,117 @@
   <div class="table-card">
     <div class="wm-bg"><img src="{% static 'pos/images/logo.jpg' %}" alt=""></div>
     <div class="tc-header"><h3><i class="fas fa-list"></i> All Expenses</h3></div>
-    <table class="data-table">
-      <thead>
-        <tr><th>Date</th>{% if all_stores and not store_filter %}<th>Store</th>{% endif %}<th>Category</th><th>Description</th><th>Amount</th><th>Bill</th><th>Added By</th><th>Action</th></tr>
-      </thead>
-      <tbody>
-      {% for e in expenses %}
-      <tr>
-        <td>{{ e.date|date:"d M Y" }}</td>
-        {% if all_stores and not store_filter %}<td><span class="pill pill-blue" style="font-size:11px;">{{ e.store.name }}</span></td>{% endif %}
-        <td><span class="cat-badge cat-other">{{ e.get_category_display }}</span></td>
-        <td>
-          {{ e.description }}
-          {% if e.category == 'PURCHASE' %}
-            <div style="font-size: 11px; color: #64748b; margin-top: 4px; line-height: 1.4;">
-              {% if e.product %}<strong>Product:</strong> {{ e.product.name }}<br>{% endif %}
-              <strong>Qty:</strong> {{ e.quantity|default:"0" }} kg | 
-              <strong>Price/kg:</strong> ₹{{ e.price_per_kg|default:"0" }} | 
-              <strong>Transport:</strong> ₹{{ e.transportation_cost|default:"0" }}
+    <div style="overflow-x: auto;">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            {% if all_stores and not store_filter %}<th>Store</th>{% endif %}
+            <th>Category</th>
+            <th>Description</th>
+            <th>Amount</th>
+            <th>Status</th>
+            <th>Bill</th>
+            <th>Added By</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for e in expenses %}
+        <tr>
+          <td>{{ e.date|date:"d M Y" }}</td>
+          {% if all_stores and not store_filter %}<td><span class="pill pill-blue" style="font-size:11px;">{{ e.store.name }}</span></td>{% endif %}
+          <td><span class="cat-badge cat-other">{{ e.get_category_display }}</span></td>
+          <td>
+            {{ e.description }}
+            {% if e.category == 'PURCHASE' %}
+              <div style="font-size: 11px; color: #64748b; margin-top: 6px; line-height: 1.4; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 6px;">
+                {% if e.purchase_items.exists %}
+                  <table style="width:100%; border-collapse:collapse; margin-top:4px; font-size:10px;">
+                    <thead>
+                      <tr style="border-bottom:1px solid #cbd5e1;">
+                        <th style="text-align:left; padding:2px; color:#475569;">Product</th>
+                        <th style="text-align:right; padding:2px; color:#475569;">Qty</th>
+                        <th style="text-align:right; padding:2px; color:#475569;">Price/kg</th>
+                        <th style="text-align:right; padding:2px; color:#475569;">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for item in e.purchase_items.all %}
+                      <tr style="border-bottom:1px solid #f1f5f9;">
+                        <td style="text-align:left; padding:2px;">{{ item.product.name }}</td>
+                        <td style="text-align:right; padding:2px;">{{ item.quantity|floatformat:2 }} kg</td>
+                        <td style="text-align:right; padding:2px;">₹{{ item.price_per_kg|floatformat:2 }}</td>
+                        <td style="text-align:right; padding:2px;">₹{{ item.total_price|floatformat:2 }}</td>
+                      </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                  {% if e.transportation_cost > 0 %}
+                    <div style="margin-top: 4px; font-weight: 600; text-align: right; font-size:10px;">Transport/Processing: ₹{{ e.transportation_cost|floatformat:2 }}</div>
+                  {% endif %}
+                {% else %}
+                  {% if e.product %}<strong>Product:</strong> {{ e.product.name }}<br>{% endif %}
+                  <strong>Qty:</strong> {{ e.quantity|default:"0" }} kg | 
+                  <strong>Price/kg:</strong> ₹{{ e.price_per_kg|default:"0" }} | 
+                  <strong>Transport:</strong> ₹{{ e.transportation_cost|default:"0" }}
+                {% endif %}
+              </div>
+            {% endif %}
+          </td>
+          <td class="tr"><strong>₹{{ e.amount }}</strong></td>
+          <td>
+            {% if e.status == 'PAID' %}
+              <span class="pill" style="font-size:11px; padding:3px 8px; background:#def7ec; color:#03543f; font-weight:700;"><i class="fas fa-check-circle"></i> Paid</span>
+            {% else %}
+              <span class="pill" style="font-size:11px; padding:3px 8px; background:#fde8e8; color:#9b1c1c; font-weight:700;"><i class="fas fa-exclamation-circle"></i> Pending</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if e.bill_pdf %}
+            <a href="{{ e.bill_pdf.url }}" target="_blank" class="btn-sm blue">
+              <i class="fas fa-file-pdf"></i> View PDF
+            </a>
+            {% else %}
+            <span style="color:var(--muted);font-size:12px;">No bill</span>
+            {% endif %}
+          </td>
+          <td>{{ e.created_by.username|default:"—" }}</td>
+          <td>
+            <div style="display: flex; gap: 4px; align-items: center;">
+              {% if e.status == 'PENDING' %}
+              <form method="POST" action="{% url 'expense_mark_paid' e.id %}" style="display:inline;" onsubmit="return confirm('Mark this expense as PAID?')">
+                {% csrf_token %}
+                <button type="submit" class="btn-icon-sm green" title="Mark as Paid"><i class="fas fa-check"></i></button>
+              </form>
+              {% endif %}
+              <form method="POST" action="{% url 'expense_delete' e.id %}" style="display:inline;" onsubmit="return confirm('Delete this expense? Stock levels will be reverted.')">
+                {% csrf_token %}
+                <button type="submit" class="btn-icon-sm red"><i class="fas fa-trash"></i></button>
+              </form>
             </div>
-          {% endif %}
-        </td>
-        <td class="tr"><strong>₹{{ e.amount }}</strong></td>
-        <td>
-          {% if e.bill_pdf %}
-          <a href="{{ e.bill_pdf.url }}" target="_blank" class="btn-sm blue">
-            <i class="fas fa-file-pdf"></i> View PDF
-          </a>
-          {% else %}
-          <span style="color:var(--muted);font-size:12px;">No bill</span>
-          {% endif %}
-        </td>
-        <td>{{ e.created_by.username|default:"—" }}</td>
-        <td>
-          <form method="POST" action="{% url 'expense_delete' e.id %}" style="display:inline;" onsubmit="return confirm('Delete this expense?')">
-            {% csrf_token %}
-            <button type="submit" class="btn-icon-sm red"><i class="fas fa-trash"></i></button>
-          </form>
-        </td>
-      </tr>
-      {% empty %}
-      <tr><td colspan="7" class="empty-state"><i class="fas fa-minus-circle"></i><p>No expenses recorded yet.</p></td></tr>
-      {% endfor %}
-      </tbody>
-    </table>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="9" class="empty-state"><i class="fas fa-minus-circle"></i><p>No expenses recorded yet.</p></td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
 </div>
 
 <!-- Add Expense Modal -->
 <div class="modal-overlay" id="addExpenseModal">
-  <div class="modal">
+  <div class="modal" style="max-width: 650px;">
     <div class="mhdr"><h3><i class="fas fa-plus-circle"></i> Add Expense</h3><button onclick="closeModal('addExpenseModal')">×</button></div>
     <form method="POST" action="{% url 'expense_add' %}" enctype="multipart/form-data" class="mform">
       {% csrf_token %}
+      
       {% if all_stores %}
       <div class="fg">
         <label>Store *</label>
-        <select name="store_id" required>
+        <select name="store_id" id="storeSelect" required>
           <option value="">— Select Store —</option>
           {% for s in all_stores %}
           <option value="{{ s.id }}" {% if store_filter == s.id|stringformat:"s" %}selected{% endif %}>{{ s.name }}</option>
@@ -113,6 +167,7 @@
         </select>
       </div>
       {% endif %}
+      
       <div class="frow">
         <div class="fg">
           <label>Category *</label>
@@ -137,14 +192,63 @@
           <input type="date" name="date" value="{{ report_date|date:'Y-m-d' }}" required>
         </div>
       </div>
-      <div class="fg"><label>Description *</label><input type="text" name="description" required placeholder="e.g. Monthly rent payment"></div>
-      <div class="fg"><label>Amount (₹) *</label><input type="number" name="amount" step="0.01" min="0" required placeholder="0.00"></div>
-      <div class="fg">
+
+      <!-- Standard Expense Inputs -->
+      <div id="standardExpenseFields">
+        <div class="fg"><label>Description *</label><input type="text" name="description" required placeholder="e.g. Monthly rent payment"></div>
+        <div class="fg"><label>Amount (₹) *</label><input type="number" name="amount" step="0.01" min="0" required placeholder="0.00"></div>
+      </div>
+
+      <!-- Dynamic Stock Purchase Inputs -->
+      <div id="stockPurchaseFields" style="display:none; border-top: 1px solid var(--border); padding-top: 14px; margin-top: 14px;">
+        <h4 style="margin: 0 0 10px 0; color: var(--text); font-size: 14px;"><i class="fas fa-shopping-basket"></i> Purchased Items Checklist</h4>
+        
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 12px; font-size: 13px;">
+          <thead>
+            <tr style="border-bottom: 2px solid var(--border); text-align: left;">
+              <th style="padding: 6px 4px;">Product Name *</th>
+              <th style="padding: 6px 4px; width: 100px; text-align: right;">Total KG *</th>
+              <th style="padding: 6px 4px; width: 100px; text-align: right;">Price / KG *</th>
+              <th style="padding: 6px 4px; width: 100px; text-align: right;">Total Price</th>
+              <th style="padding: 6px 4px; width: 40px; text-align: center;"></th>
+            </tr>
+          </thead>
+          <tbody id="stockItemsBody">
+            <!-- Row inputs inserted dynamically via JS -->
+          </tbody>
+        </table>
+
+        <button type="button" class="btn-secondary" onclick="addStockRow()" style="padding: 5px 12px; font-size: 12px; margin-bottom: 14px;">
+          <i class="fas fa-plus"></i> Add Product Row
+        </button>
+
+        <div class="frow">
+          <div class="fg">
+            <label>Processing + Delivery + Ice Boxes (₹)</label>
+            <input type="number" name="transportation_cost" id="transportationCostInput" step="0.01" min="0" value="0.00" oninput="calculateInvoiceTotal()">
+          </div>
+          <div class="fg">
+            <label>Status *</label>
+            <select name="status">
+              <option value="PAID">Paid</option>
+              <option value="PENDING">Pending</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="text-align: right; padding: 12px; background: #f8fcff; border-radius: 8px; margin-top: 12px; border: 1px solid #e1effe;">
+          <span style="font-size: 13px; color: var(--muted); font-weight: 500;">Invoice Grand Total:</span>
+          <div id="grandTotalDisplay" style="font-size: 20px; font-weight: 800; color: #1e3a8a; margin-top: 2px;">₹0.00</div>
+        </div>
+      </div>
+      
+      <div class="fg" style="margin-top: 14px;">
         <label>Upload Bill / Invoice (PDF optional)</label>
         <input type="file" name="bill_pdf" accept=".pdf,.jpg,.jpeg,.png" style="padding:8px;background:#f8fcff;border:2px dashed var(--border);border-radius:8px;width:100%;cursor:pointer;">
         <small style="color:var(--muted);font-size:11px;">Accepted: PDF, JPG, PNG</small>
       </div>
-      <div class="mactions">
+
+      <div class="mactions" style="margin-top: 20px;">
         <button type="button" class="btn-secondary" onclick="closeModal('addExpenseModal')">Cancel</button>
         <button type="submit" class="btn-primary"><i class="fas fa-save"></i> Save Expense</button>
       </div>
@@ -157,18 +261,174 @@
 <script>
 const DAILY_CATS   = ['TRANSPORT','MAINTENANCE','MISC'];
 const MONTHLY_CATS = ['RENT','ELECTRICITY','SALARY','PURCHASE','OTHER'];
+const storeProducts = {{ products_json|safe }};
+
+function getSelectedStoreId() {
+  const storeSel = document.getElementById('storeSelect');
+  if (storeSel) {
+    return storeSel.value;
+  }
+  return "{{ profile.store.id }}";
+}
+
+function getProductOptionsHtml(storeId) {
+  const products = storeProducts[storeId] || [];
+  let html = '<option value="">— Select Product —</option>';
+  products.forEach(p => {
+    html += `<option value="${p.id}" data-price="${p.cost_price}">${p.name}</option>`;
+  });
+  return html;
+}
+
+function addStockRow() {
+  const storeId = getSelectedStoreId();
+  if (!storeId) {
+    alert('Please select a store first.');
+    return;
+  }
+  
+  const tbody = document.getElementById('stockItemsBody');
+  const rowId = 'row_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+  const optionsHtml = getProductOptionsHtml(storeId);
+  
+  const tr = document.createElement('tr');
+  tr.id = rowId;
+  tr.style.borderBottom = '1px solid #f1f5f9';
+  
+  tr.innerHTML = `
+    <td style="padding: 6px 4px;">
+      <select name="item_product_id[]" required onchange="onProductChange(this)" style="width:100%; padding:6px; border:1px solid #cbd5e1; border-radius:6px; background:#fff;">
+        ${optionsHtml}
+      </select>
+    </td>
+    <td style="padding: 6px 4px;">
+      <input type="number" name="item_quantity[]" required step="0.001" min="0.001" placeholder="0.0" oninput="onRowValueChange(this)" style="width:100%; padding:6px; border:1px solid #cbd5e1; border-radius:6px; text-align:right;">
+    </td>
+    <td style="padding: 6px 4px;">
+      <input type="number" name="item_price[]" required step="0.01" min="0" placeholder="0.00" oninput="onRowValueChange(this)" style="width:100%; padding:6px; border:1px solid #cbd5e1; border-radius:6px; text-align:right;">
+    </td>
+    <td style="padding: 10px 4px; text-align:right; font-weight:700; color:var(--text);" class="row-total-cell">
+      ₹0.00
+    </td>
+    <td style="padding: 6px 4px; text-align:center;">
+      <button type="button" class="btn-icon-sm red" onclick="removeStockRow('${rowId}')" style="padding:2px 6px; font-size:11px;"><i class="fas fa-times"></i></button>
+    </td>
+  `;
+  tbody.appendChild(tr);
+}
+
+function onProductChange(selectEl) {
+  const selectedOption = selectEl.options[selectEl.selectedIndex];
+  const price = selectedOption.getAttribute('data-price') || '0';
+  const row = selectEl.closest('tr');
+  const priceInput = row.querySelector('input[name="item_price[]"]');
+  if (priceInput) {
+    priceInput.value = parseFloat(price).toFixed(2);
+  }
+  onRowValueChange(selectEl);
+}
+
+function onRowValueChange(element) {
+  const row = element.closest('tr');
+  const qtyInput = row.querySelector('input[name="item_quantity[]"]');
+  const priceInput = row.querySelector('input[name="item_price[]"]');
+  const totalCell = row.querySelector('.row-total-cell');
+  
+  const qty = parseFloat(qtyInput?.value || 0);
+  const price = parseFloat(priceInput?.value || 0);
+  const total = qty * price;
+  
+  if (totalCell) {
+    totalCell.textContent = '₹' + total.toFixed(2);
+  }
+  calculateInvoiceTotal();
+}
+
+function removeStockRow(rowId) {
+  const row = document.getElementById(rowId);
+  if (row) {
+    row.remove();
+  }
+  calculateInvoiceTotal();
+}
+
+function calculateInvoiceTotal() {
+  const tbody = document.getElementById('stockItemsBody');
+  const rows = tbody.querySelectorAll('tr');
+  let itemsTotal = 0;
+  
+  rows.forEach(row => {
+    const qty = parseFloat(row.querySelector('input[name="item_quantity[]"]')?.value || 0);
+    const price = parseFloat(row.querySelector('input[name="item_price[]"]')?.value || 0);
+    itemsTotal += qty * price;
+  });
+  
+  const transportInput = document.getElementById('transportationCostInput');
+  const transport = parseFloat(transportInput?.value || 0);
+  const grandTotal = itemsTotal + transport;
+  
+  const grandTotalDisplay = document.getElementById('grandTotalDisplay');
+  if (grandTotalDisplay) {
+    grandTotalDisplay.textContent = '₹' + grandTotal.toFixed(2);
+  }
+  
+  // Backfill standard amount input
+  const stdAmount = document.querySelector('input[name="amount"]');
+  if (stdAmount) {
+    stdAmount.value = grandTotal.toFixed(2);
+  }
+}
 
 function updateExpenseType(sel) {
   const lbl  = document.getElementById('expTypeLabel');
   const hint = document.getElementById('expTypeHint');
-  if (!lbl) return;
-  if (DAILY_CATS.includes(sel.value)) {
-    lbl.textContent  = 'Daily';
-    lbl.style.color  = '#d68910';
-  } else if (MONTHLY_CATS.includes(sel.value)) {
-    lbl.textContent  = 'Monthly';
-    lbl.style.color  = '#7d3c98';
+  if (lbl) {
+    if (DAILY_CATS.includes(sel.value)) {
+      lbl.textContent  = 'Daily';
+      lbl.style.color  = '#d68910';
+    } else if (MONTHLY_CATS.includes(sel.value)) {
+      lbl.textContent  = 'Monthly';
+      lbl.style.color  = '#7d3c98';
+    }
+  }
+  
+  const stdFields = document.getElementById('standardExpenseFields');
+  const stockFields = document.getElementById('stockPurchaseFields');
+  const descInput = document.querySelector('input[name="description"]');
+  const amtInput = document.querySelector('input[name="amount"]');
+  
+  if (sel.value === 'PURCHASE') {
+    stdFields.style.display = 'none';
+    stockFields.style.display = 'block';
+    if (descInput) descInput.required = false;
+    if (amtInput) amtInput.required = false;
+    
+    // Add default row if empty
+    const tbody = document.getElementById('stockItemsBody');
+    if (tbody && tbody.children.length === 0) {
+      addStockRow();
+    }
+  } else {
+    stdFields.style.display = 'block';
+    stockFields.style.display = 'none';
+    if (descInput) descInput.required = true;
+    if (amtInput) amtInput.required = true;
   }
 }
+
+// Watch store select to reset table
+document.addEventListener('DOMContentLoaded', function() {
+  const storeSel = document.getElementById('storeSelect');
+  if (storeSel) {
+    storeSel.addEventListener('change', function() {
+      const tbody = document.getElementById('stockItemsBody');
+      if (tbody) tbody.innerHTML = '';
+      const categorySel = document.querySelector('select[name="category"]');
+      if (categorySel && categorySel.value === 'PURCHASE') {
+        addStockRow();
+      }
+    });
+  }
+});
 </script>
 {% endblock %}
