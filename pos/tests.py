@@ -120,12 +120,11 @@ class ReportsViewTestCase(TestCase):
         
         # Verify content renders in HTML
         html_content = response.content.decode('utf-8')
-        self.assertIn('Retail Qty (kg)', html_content)
-        self.assertIn('Wholesale Qty (kg)', html_content)
-        self.assertIn('Total Qty (kg)', html_content)
+        self.assertIn('Retail Billed Items', html_content)
+        self.assertIn('Wholesale Billed Items', html_content)
+        self.assertIn('Qty (kg)', html_content)
         self.assertIn('2.000', html_content)
         self.assertIn('5.000', html_content)
-        self.assertIn('7.000', html_content)
 
 
 class CustomerAndCreditsTestCase(TestCase):

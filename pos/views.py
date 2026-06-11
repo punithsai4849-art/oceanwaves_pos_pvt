@@ -1388,6 +1388,34 @@ def reports(request):
         profit=Sum('profit')
     ).order_by('-qty'))
 
+    retail_items = items_qs.filter(sale__bill_type='RETAIL')
+    retail_product_summary = list(retail_items.values('product_name').annotate(
+        qty=Sum('quantity'),
+        sales=Sum('total_amount'),
+        cost=Sum('total_cost'),
+        profit=Sum('profit')
+    ).order_by('-qty'))
+    retail_agg = retail_items.aggregate(
+        total_sales=Sum('total_amount'),
+        total_cost=Sum('total_cost'),
+        total_profit=Sum('profit'),
+        total_qty=Sum('quantity')
+    )
+
+    wholesale_items = items_qs.filter(sale__bill_type='WHOLESALE')
+    wholesale_product_summary = list(wholesale_items.values('product_name').annotate(
+        qty=Sum('quantity'),
+        sales=Sum('total_amount'),
+        cost=Sum('total_cost'),
+        profit=Sum('profit')
+    ).order_by('-qty'))
+    wholesale_agg = wholesale_items.aggregate(
+        total_sales=Sum('total_amount'),
+        total_cost=Sum('total_cost'),
+        total_profit=Sum('profit'),
+        total_qty=Sum('quantity')
+    )
+
     agg = items_qs.aggregate(
         total_sales=Sum('total_amount'),
         total_cost=Sum('total_cost'),
@@ -1432,7 +1460,19 @@ def reports(request):
         'from_date':       from_date,
         'to_date':         to_date,
         'sales':           sales,
+        'retail_sales':    [s for s in sales if s.bill_type == 'RETAIL'],
+        'wholesale_sales': [s for s in sales if s.bill_type == 'WHOLESALE'],
         'product_summary': product_summary,
+        'retail_product_summary': retail_product_summary,
+        'wholesale_product_summary': wholesale_product_summary,
+        'retail_total_sales': float(retail_agg['total_sales'] or 0),
+        'retail_total_cost': float(retail_agg['total_cost'] or 0),
+        'retail_total_profit': float(retail_agg['total_profit'] or 0),
+        'retail_total_qty': float(retail_agg['total_qty'] or 0),
+        'wholesale_total_sales': float(wholesale_agg['total_sales'] or 0),
+        'wholesale_total_cost': float(wholesale_agg['total_cost'] or 0),
+        'wholesale_total_profit': float(wholesale_agg['total_profit'] or 0),
+        'wholesale_total_qty': float(wholesale_agg['total_qty'] or 0),
         'total_sales':     total_sales,
         'total_cost':      total_cost,
         'total_profit':    total_profit,

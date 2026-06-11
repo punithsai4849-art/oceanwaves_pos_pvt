@@ -120,71 +120,148 @@
 
   <!-- Detailed sales table -->
   {% if sales %}
-  <div class="table-card" style="margin-bottom:20px;">
-    <div class="wm-bg"><img src="{% static 'pos/images/logo.jpg' %}" alt=""></div>
-    <div class="tc-header"><h3><i class="fas fa-list"></i> Bills</h3></div>
-    <table class="data-table">
-      <thead><tr>
-        {% if not store %}<th>Store</th>{% endif %}
-        <th>Bill #</th><th>Date &amp; Time</th><th>Type</th><th>Customer</th><th>Payment</th><th>Total</th><th>Print</th>
-      </tr></thead>
-      <tbody>
-      {% for s in sales %}
-      <tr>
-        {% if not store %}<td>{{ s.store.name }}</td>{% endif %}
-        <td><strong>{{ s.bill_number }}</strong></td>
-        <td>{{ s.created_at|date:"d-m-Y h:i A" }}</td>
-        <td><span class="pill {% if s.bill_type == 'WHOLESALE' %}pill-blue{% else %}pill-green{% endif %}">{{ s.bill_type }}</span></td>
-        <td>{{ s.customer_name|default:"Walk-in" }}</td>
-        <td>{{ s.get_payment_mode_display }}</td>
-        <td><strong>₹{{ s.grand_total }}</strong></td>
-        <td><a href="{% url 'bill_print' s.id %}" target="_blank" class="btn-icon-sm blue"><i class="fas fa-print"></i></a></td>
-      </tr>
-      {% endfor %}
-      </tbody>
-    </table>
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 20px; margin-bottom: 20px;">
+    <!-- Retail Bills -->
+    <div class="table-card" style="margin-bottom:0;">
+      <div class="tc-header" style="border-bottom: 2px solid #10b981;">
+        <h3><i class="fas fa-shopping-basket" style="color: #10b981;"></i> Retail Bills</h3>
+      </div>
+      <div style="max-height: 400px; overflow-y: auto;">
+        <table class="data-table" style="font-size: 13px;">
+          <thead><tr>
+            {% if not store %}<th>Store</th>{% endif %}
+            <th>Bill #</th><th>Customer</th><th>Payment</th><th>Total</th><th>Print</th>
+          </tr></thead>
+          <tbody>
+          {% for s in retail_sales %}
+          <tr>
+            {% if not store %}<td>{{ s.store.code|default:s.store.name }}</td>{% endif %}
+            <td><strong>{{ s.bill_number }}</strong></td>
+            <td>{{ s.customer_name|default:"Walk-in" }}</td>
+            <td>{{ s.get_payment_mode_display }}</td>
+            <td><strong>₹{{ s.grand_total }}</strong></td>
+            <td><a href="{% url 'bill_print' s.id %}" target="_blank" class="btn-icon-sm blue"><i class="fas fa-print"></i></a></td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="{% if not store %}5{% else %}4{% endif %}" style="text-align:center; color:var(--muted); padding: 20px 0;">No retail bills found</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Wholesale Bills -->
+    <div class="table-card" style="margin-bottom:0;">
+      <div class="tc-header" style="border-bottom: 2px solid #3b82f6;">
+        <h3><i class="fas fa-truck-loading" style="color: #3b82f6;"></i> Wholesale Bills</h3>
+      </div>
+      <div style="max-height: 400px; overflow-y: auto;">
+        <table class="data-table" style="font-size: 13px;">
+          <thead><tr>
+            {% if not store %}<th>Store</th>{% endif %}
+            <th>Bill #</th><th>Customer</th><th>Payment</th><th>Total</th><th>Print</th>
+          </tr></thead>
+          <tbody>
+          {% for s in wholesale_sales %}
+          <tr>
+            {% if not store %}<td>{{ s.store.code|default:s.store.name }}</td>{% endif %}
+            <td><strong>{{ s.bill_number }}</strong></td>
+            <td>{{ s.customer_name|default:"Walk-in" }}</td>
+            <td>{{ s.get_payment_mode_display }}</td>
+            <td><strong>₹{{ s.grand_total }}</strong></td>
+            <td><a href="{% url 'bill_print' s.id %}" target="_blank" class="btn-icon-sm blue"><i class="fas fa-print"></i></a></td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="{% if not store %}5{% else %}4{% endif %}" style="text-align:center; color:var(--muted); padding: 20px 0;">No wholesale bills found</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
 
-  <div class="table-card">
-    <div class="tc-header"><h3><i class="fas fa-fish"></i> Product Sales Summary</h3></div>
-    <table class="data-table">
-      <thead><tr>
-        <th>Product</th>
-        <th class="tr">Retail Qty (kg)</th>
-        <th class="tr">Wholesale Qty (kg)</th>
-        <th class="tr">Total Qty (kg)</th>
-        <th class="tr">Total Sales</th>
-        {% if not profile.is_staff_role %}
-        <th class="tr">Total Cost</th><th class="tr">Gross Profit</th>
-        {% endif %}
-      </tr></thead>
-      <tbody>
-      {% for item in product_summary %}
-      <tr>
-        <td><strong>{{ item.product_name }}</strong></td>
-        <td class="tr">{{ item.retail_qty|default:0|floatformat:3 }}</td>
-        <td class="tr">{{ item.wholesale_qty|default:0|floatformat:3 }}</td>
-        <td class="tr">{{ item.qty|floatformat:3 }}</td>
-        <td class="tr">₹{{ item.sales|floatformat:2 }}</td>
-        {% if not profile.is_staff_role %}
-        <td class="tr">₹{{ item.cost|floatformat:2 }}</td>
-        <td class="tr {% if item.profit >= 0 %}text-green{% else %}text-red{% endif %}"><strong>₹{{ item.profit|floatformat:2 }}</strong></td>
-        {% endif %}
-      </tr>
-      {% endfor %}
-      <tr class="totals-row">
-        <td><strong>TOTALS</strong></td>
-        <td class="tr"><strong>{{ total_retail_qty|floatformat:3 }}</strong></td>
-        <td class="tr"><strong>{{ total_wholesale_qty|floatformat:3 }}</strong></td>
-        <td class="tr"><strong>{{ total_qty|floatformat:3 }}</strong></td>
-        <td class="tr"><strong>₹{{ total_sales|floatformat:2 }}</strong></td>
-        {% if not profile.is_staff_role %}
-        <td class="tr"><strong>₹{{ total_cost|floatformat:2 }}</strong></td>
-        <td class="tr text-green"><strong>₹{{ total_profit|floatformat:2 }}</strong></td>
-        {% endif %}
-      </tr>
-      </tbody>
-    </table>
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 20px; margin-bottom: 20px;">
+    <!-- Retail Product Sales Summary -->
+    <div class="table-card" style="margin-bottom:0;">
+      <div class="tc-header" style="border-bottom: 2px solid #10b981;">
+        <h3><i class="fas fa-fish" style="color: #10b981;"></i> Retail Billed Items</h3>
+      </div>
+      <table class="data-table" style="font-size: 13px;">
+        <thead><tr>
+          <th>Product</th>
+          <th class="tr">Qty (kg)</th>
+          <th class="tr">Sales</th>
+          {% if not profile.is_staff_role %}
+          <th class="tr">Cost</th><th class="tr">Gross Profit</th>
+          {% endif %}
+        </tr></thead>
+        <tbody>
+        {% for item in retail_product_summary %}
+        <tr>
+          <td><strong>{{ item.product_name }}</strong></td>
+          <td class="tr">{{ item.qty|floatformat:3 }}</td>
+          <td class="tr">₹{{ item.sales|floatformat:2 }}</td>
+          {% if not profile.is_staff_role %}
+          <td class="tr">₹{{ item.cost|floatformat:2 }}</td>
+          <td class="tr {% if item.profit >= 0 %}text-green{% else %}text-red{% endif %}"><strong>₹{{ item.profit|floatformat:2 }}</strong></td>
+          {% endif %}
+        </tr>
+        {% empty %}
+        <tr><td colspan="{% if not profile.is_staff_role %}5{% else %}3{% endif %}" style="text-align:center; color:var(--muted); padding: 20px 0;">No retail sales found</td></tr>
+        {% endfor %}
+        <tr class="totals-row">
+          <td><strong>TOTALS</strong></td>
+          <td class="tr"><strong>{{ retail_total_qty|floatformat:3 }}</strong></td>
+          <td class="tr"><strong>₹{{ retail_total_sales|floatformat:2 }}</strong></td>
+          {% if not profile.is_staff_role %}
+          <td class="tr"><strong>₹{{ retail_total_cost|floatformat:2 }}</strong></td>
+          <td class="tr text-green"><strong>₹{{ retail_total_profit|floatformat:2 }}</strong></td>
+          {% endif %}
+        </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Wholesale Product Sales Summary -->
+    <div class="table-card" style="margin-bottom:0;">
+      <div class="tc-header" style="border-bottom: 2px solid #3b82f6;">
+        <h3><i class="fas fa-boxes" style="color: #3b82f6;"></i> Wholesale Billed Items</h3>
+      </div>
+      <table class="data-table" style="font-size: 13px;">
+        <thead><tr>
+          <th>Product</th>
+          <th class="tr">Qty (kg)</th>
+          <th class="tr">Sales</th>
+          {% if not profile.is_staff_role %}
+          <th class="tr">Cost</th><th class="tr">Gross Profit</th>
+          {% endif %}
+        </tr></thead>
+        <tbody>
+        {% for item in wholesale_product_summary %}
+        <tr>
+          <td><strong>{{ item.product_name }}</strong></td>
+          <td class="tr">{{ item.qty|floatformat:3 }}</td>
+          <td class="tr">₹{{ item.sales|floatformat:2 }}</td>
+          {% if not profile.is_staff_role %}
+          <td class="tr">₹{{ item.cost|floatformat:2 }}</td>
+          <td class="tr {% if item.profit >= 0 %}text-green{% else %}text-red{% endif %}"><strong>₹{{ item.profit|floatformat:2 }}</strong></td>
+          {% endif %}
+        </tr>
+        {% empty %}
+        <tr><td colspan="{% if not profile.is_staff_role %}5{% else %}3{% endif %}" style="text-align:center; color:var(--muted); padding: 20px 0;">No wholesale sales found</td></tr>
+        {% endfor %}
+        <tr class="totals-row">
+          <td><strong>TOTALS</strong></td>
+          <td class="tr"><strong>{{ wholesale_total_qty|floatformat:3 }}</strong></td>
+          <td class="tr"><strong>₹{{ wholesale_total_sales|floatformat:2 }}</strong></td>
+          {% if not profile.is_staff_role %}
+          <td class="tr"><strong>₹{{ wholesale_total_cost|floatformat:2 }}</strong></td>
+          <td class="tr text-green"><strong>₹{{ wholesale_total_profit|floatformat:2 }}</strong></td>
+          {% endif %}
+        </tr>
+        </tbody>
+      </table>
+    </div>
   </div>
   {% else %}
   <div class="empty-state" style="padding:60px;text-align:center;">
