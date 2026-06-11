@@ -410,3 +410,79 @@ class CrossStoreIsolationTestCase(TestCase):
         self.assertEqual(self.cust_e.name, 'ELR Cust')
 
 
+class WeightedAverageCostTestCase(TestCase):
+    def setUp(self):
+        self.store = Store.objects.create(name='WAC Store', is_active=True, code='WAC')
+        self.user = User.objects.create_user(username='wacowner', password='password123')
+        self.profile = UserProfile.objects.create(user=self.user, role='OWNER', store=self.store, is_active=True)
+        self.product = Product.objects.create(
+            store=self.store,
+            name='Prawn',
+            category='OTHER',
+            retail_price=Decimal('500.00'),
+            wholesale_price=Decimal('450.00'),
+            cost_price=Decimal('330.00'),
+            stock_quantity=Decimal('10.00'),
+            is_active=True
+        )
+        self.client = Client()
+
+    def test_wac_recalculation_on_restock(self):
+        self.client.login(username='wacowner', password='password123')
+        
+        # Restock 20 kg at 360/kg
+        response = self.client.post(f'/inventory/{self.product.id}/restock/', {
+            'add_quantity': 20,
+            'price_per_kg': 360,
+            'log_expense': 'on',
+            'note': 'Restock Prawn'
+        })
+        self.assertRedirects(response, '/inventory/')
+        
+        self.product.refresh_from_db()
+        # Stock: 10 + 20 = 30
+        # WAC: (10 * 330 + 20 * 360) / 30 = 350.00
+        self.assertEqual(self.product.stock_quantity, Decimal('30.00'))
+        self.assertEqual(self.product.cost_price, Decimal('350.00'))
+
+        # Create a sale to verify profit calculation snaps WAC
+        # Sell 5 kg at 500/kg
+        self.client.login(username='wacowner', password='password123')
+        
+        # Let's save a bill via view
+        # We can construct POST parameters for save_bill
+        # But wait, we can also directly check SaleItem creation
+        # Let's post to save_bill to be thorough
+        # First we need to get the CSRF token, or since it's Django Client, CSRF check is bypassed for post requests under tests
+        import json
+        payload = {
+            'bill_type': 'RETAIL',
+            'payment_mode': 'CASH',
+            'customer_name': 'Test Cust',
+            'customer_phone': '9999999999',
+            'items': [{
+                'product_id': self.product.id,
+                'quantity': 5,
+                'selling_price': 500
+            }],
+            'discount': 0
+        }
+        response = self.client.post('/billing/save/', json.dumps(payload), content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+        resp_data = response.json()
+        self.assertTrue(resp_data.get('success'))
+
+        sale = Sale.objects.get(bill_number=resp_data['bill_number'])
+        self.assertEqual(sale.items.count(), 1)
+        item = sale.items.first()
+        # Cost price should be the WAC of 350.00
+        self.assertEqual(item.cost_price, Decimal('350.00'))
+        # Total cost: 5 * 350 = 1750.00
+        self.assertEqual(item.total_cost, Decimal('1750.00'))
+        # Selling amount: 5 * 500 = 2500.00
+        self.assertEqual(item.total_amount, Decimal('2500.00'))
+        # Profit: 2500 - 1750 = 750.00
+        self.assertEqual(item.profit, Decimal('750.00'))
+
+
+

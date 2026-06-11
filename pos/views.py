@@ -1257,8 +1257,23 @@ def product_restock(request, pid):
                 pass
 
         if qty != 0:
+            old_qty = p.stock_quantity
             p.stock_quantity += qty
-            p.save(update_fields=['stock_quantity'])
+            
+            if qty > 0:
+                price_per_kg_val = request.POST.get('price_per_kg')
+                if price_per_kg_val:
+                    try:
+                        price_per_kg = decimal.Decimal(price_per_kg_val)
+                        if old_qty > 0:
+                            new_cp = ((old_qty * p.cost_price) + (qty * price_per_kg)) / (old_qty + qty)
+                        else:
+                            new_cp = price_per_kg
+                        p.cost_price = new_cp.quantize(decimal.Decimal('0.01'))
+                    except (ValueError, TypeError, decimal.InvalidOperation):
+                        pass
+
+            p.save(update_fields=['stock_quantity', 'cost_price'])
             
             log = StockLog.objects.create(
                 store=store, product=p, 
