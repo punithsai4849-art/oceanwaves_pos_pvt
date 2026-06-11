@@ -2719,6 +2719,9 @@ def wholesale_customers(request):
 def wholesale_customer_add(request):
     from .models import WholesaleCustomer
     profile = get_profile(request.user)
+    if profile.role == 'STAFF':
+        messages.error(request, 'Access denied: Cashiers cannot add wholesale customers.')
+        return redirect('wholesale_customers')
 
     if request.method == 'POST':
         name = request.POST.get('name', '').strip()
@@ -2765,6 +2768,9 @@ def wholesale_customer_add(request):
 def wholesale_customer_edit(request, cid):
     from .models import WholesaleCustomer
     profile = get_profile(request.user)
+    if profile.role == 'STAFF':
+        messages.error(request, 'Access denied: Cashiers cannot modify wholesale customers.')
+        return redirect('wholesale_customers')
 
     c = get_object_or_404(WholesaleCustomer, id=cid)
     
@@ -2832,6 +2838,9 @@ def wholesale_customer_edit(request, cid):
 def wholesale_customer_delete(request, cid):
     from .models import WholesaleCustomer
     profile = get_profile(request.user)
+    if profile.role == 'STAFF':
+        messages.error(request, 'Access denied: Cashiers cannot delete wholesale customers.')
+        return redirect('wholesale_customers')
 
         
     c = get_object_or_404(WholesaleCustomer, id=cid)

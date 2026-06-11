@@ -330,6 +330,25 @@ class RBACPermissionTestCase(TestCase):
         response = self.client.post('/expenses/add/', {'category': 'MISC', 'amount': 100, 'description': 'test'})
         self.assertRedirects(response, '/dashboard/')
 
+    def test_cashier_blocked_from_wholesale_customer_actions(self):
+        # Create a wholesale customer
+        wc = WholesaleCustomer.objects.create(
+            name='Tanuku Wholesale Client', store=self.store, customer_code='OW-TNK-002', is_credit_enabled=True
+        )
+        self.client.login(username='cashier', password='password123')
+
+        # Add wholesale customer
+        response = self.client.post('/wholesale-customers/add/', {'name': 'New Client'})
+        self.assertRedirects(response, '/wholesale-customers/')
+
+        # Edit wholesale customer
+        response = self.client.post(f'/wholesale-customers/{wc.id}/edit/', {'name': 'Updated Client'})
+        self.assertRedirects(response, '/wholesale-customers/')
+
+        # Delete wholesale customer
+        response = self.client.post(f'/wholesale-customers/{wc.id}/delete/')
+        self.assertRedirects(response, '/wholesale-customers/')
+
 
 class CreditDeletionTestCase(TestCase):
     def setUp(self):
