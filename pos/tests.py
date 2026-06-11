@@ -485,4 +485,68 @@ class WeightedAverageCostTestCase(TestCase):
         self.assertEqual(item.profit, Decimal('750.00'))
 
 
+class UserManagementTestCase(TestCase):
+    def setUp(self):
+        # Create superadmin (User.id=1, UserProfile.id=1)
+        self.admin_user = User.objects.create_user(username='superadmin', password='password123')
+        self.admin_profile = UserProfile.objects.create(user=self.admin_user, role='SUPERADMIN', is_active=True)
+
+        # Create dummy user 2 and profile 2 (User.id=2, UserProfile.id=2)
+        dummy_user2 = User.objects.create_user(username='dummy2', password='password123')
+        dummy_profile2 = UserProfile.objects.create(user=dummy_user2, role='STAFF', is_active=True)
+
+        # Create dummy user 3 (User.id=3, No UserProfile)
+        dummy_user3 = User.objects.create_user(username='dummy3', password='password123')
+
+        # Now create our target user (User.id=4)
+        self.target_user = User.objects.create_user(username='targetuser', password='password123', email='target@example.com')
+        # Create target profile (UserProfile.id=3)
+        self.target_profile = UserProfile.objects.create(user=self.target_user, role='OWNER', is_active=True)
+        
+        self.client = Client()
+
+    def test_edit_user_with_id_mismatch(self):
+        # Ensure we are logged in as admin
+        self.client.login(username='superadmin', password='password123')
+        
+        # Assert IDs are actually different
+        self.assertNotEqual(self.target_user.id, self.target_profile.id)
+
+        # Edit user via user.id
+        url = f'/users/{self.target_user.id}/edit/'
+        response = self.client.post(url, {
+            'first_name': 'NewFirst',
+            'last_name': 'NewLast',
+            'email': 'newtarget@example.com',
+            'role': 'STAFF',
+            'is_active': 'on',
+            'phone': '1234567890'
+        })
+        self.assertRedirects(response, '/users/')
+        
+        # Refresh and verify
+        self.target_user.refresh_from_db()
+        self.target_profile.refresh_from_db()
+        self.assertEqual(self.target_user.first_name, 'NewFirst')
+        self.assertEqual(self.target_user.last_name, 'NewLast')
+        self.assertEqual(self.target_user.email, 'newtarget@example.com')
+        self.assertEqual(self.target_profile.role, 'STAFF')
+        self.assertTrue(self.target_profile.is_active)
+        self.assertEqual(self.target_profile.phone, '1234567890')
+
+    def test_delete_user_with_id_mismatch(self):
+        # Ensure we are logged in as admin
+        self.client.login(username='superadmin', password='password123')
+        
+        # Delete user via user.id
+        url = f'/users/{self.target_user.id}/delete/'
+        response = self.client.post(url)
+        self.assertRedirects(response, '/users/')
+        
+        # Verify User and UserProfile are deleted
+        self.assertFalse(User.objects.filter(id=self.target_user.id).exists())
+        self.assertFalse(UserProfile.objects.filter(id=self.target_profile.id).exists())
+
+
+
 

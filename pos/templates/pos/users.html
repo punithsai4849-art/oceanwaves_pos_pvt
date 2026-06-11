@@ -42,7 +42,7 @@
         <td>{% if up.is_active %}<span class="pill pill-green">Active</span>{% else %}<span class="pill pill-red">Inactive</span>{% endif %}</td>
         <td style="display:flex;gap:6px;">
           <button class="btn-icon-sm blue" title="Edit"
-            data-id="{{ up.id }}"
+            data-id="{{ up.user.id }}"
             data-fn="{{ up.user.first_name }}"
             data-ln="{{ up.user.last_name }}"
             data-role="{{ up.role }}"
@@ -63,7 +63,7 @@
           </a>
           {% endif %}
           {% if up.user != request.user %}
-          <button class="btn-icon-sm red" title="Delete" onclick="confirmDeleteUser({{ up.id }}, '{{ up.user.username|escapejs }}')">
+          <button class="btn-icon-sm red" title="Delete" onclick="confirmDeleteUser({{ up.user.id }}, '{{ up.user.username|escapejs }}')">
             <i class="fas fa-trash"></i>
           </button>
           {% endif %}

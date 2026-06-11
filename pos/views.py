@@ -669,7 +669,7 @@ def user_edit(request, user_id):
     profile = get_profile(request.user)
     if not profile.is_superadmin:
         return redirect('dashboard')
-    up = get_object_or_404(UserProfile, id=user_id)
+    up = get_object_or_404(UserProfile, user_id=user_id)
     if request.method == 'POST':
         up.role      = request.POST.get('role', up.role)
         store_id     = request.POST.get('store_id', '').strip()
@@ -731,7 +731,7 @@ def user_delete(request, user_id):
     profile = get_profile(request.user)
     if not profile.is_superadmin:
         return redirect('dashboard')
-    up = get_object_or_404(UserProfile, id=user_id)
+    up = get_object_or_404(UserProfile, user_id=user_id)
     if up.user == request.user:
         messages.error(request, "Can't delete your own account.")
     else:
