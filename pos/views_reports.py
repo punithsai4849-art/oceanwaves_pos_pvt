@@ -97,6 +97,10 @@ def daily_report_view(request):
         last_snaps = {s.product_id: s for s in DailyStockSnapshot.objects.filter(store=store, date=to_date).select_related('product')}
 
         product_rows = []
+        total_sold_rows = []
+        retail_product_rows = []
+        wholesale_product_rows = []
+
         products = list(Product.objects.filter(store=store, is_active=True))
         for p in products:
             solds = sold_map.get(p.id, [])
@@ -113,6 +117,79 @@ def daily_report_view(request):
             else:
                 closing_qty_prod = float(p.stock_quantity)
                 
+            # 1. Total Sold
+            total_sold_qty = sum(float(x['sold_qty']) for x in solds)
+            total_sold_rows.append({
+                'product_name': p.name,
+                'opening_qty': opening_qty_prod,
+                'purchased_qty': purchased_qty,
+                'sold_qty': total_sold_qty,
+                'closing_qty': closing_qty_prod,
+            })
+
+            # 2. Retail Product rows
+            retail_solds = [x for x in solds if x['sale__bill_type'] == 'RETAIL']
+            if not retail_solds:
+                retail_product_rows.append({
+                    'product_name'  : p.name,
+                    'opening_qty'   : opening_qty_prod,
+                    'purchased_qty' : purchased_qty,
+                    'purchase_price': float(p.cost_price or 0),
+                    'sold_qty'      : 0,
+                    'selling_price' : float(p.retail_price or 0),
+                    'closing_qty'   : closing_qty_prod,
+                    'profit'        : 0,
+                    'total_sale'    : 0,
+                })
+            else:
+                for idx, sold in enumerate(retail_solds):
+                    sold_qty      = float(sold['sold_qty'])
+                    total_sale    = float(sold['total_sale'])
+                    profit_val    = float(sold['profit'])
+                    retail_product_rows.append({
+                        'product_name'  : p.name if len(retail_solds) == 1 else f"{p.name} (price {sold['selling_price']})",
+                        'opening_qty'   : opening_qty_prod if idx == 0 else 0,
+                        'purchased_qty' : purchased_qty if idx == 0 else 0,
+                        'purchase_price': float(p.cost_price or 0) if idx == 0 else 0,
+                        'sold_qty'      : sold_qty,
+                        'selling_price' : float(sold['selling_price']),
+                        'closing_qty'   : closing_qty_prod if idx == 0 else 0,
+                        'profit'        : profit_val,
+                        'total_sale'    : total_sale,
+                    })
+
+            # 3. Wholesale Product rows
+            wholesale_solds = [x for x in solds if x['sale__bill_type'] == 'WHOLESALE']
+            if not wholesale_solds:
+                wholesale_product_rows.append({
+                    'product_name'  : p.name,
+                    'opening_qty'   : opening_qty_prod,
+                    'purchased_qty' : purchased_qty,
+                    'purchase_price': float(p.cost_price or 0),
+                    'sold_qty'      : 0,
+                    'selling_price' : float(p.wholesale_price or 0),
+                    'closing_qty'   : closing_qty_prod,
+                    'profit'        : 0,
+                    'total_sale'    : 0,
+                })
+            else:
+                for idx, sold in enumerate(wholesale_solds):
+                    sold_qty      = float(sold['sold_qty'])
+                    total_sale    = float(sold['total_sale'])
+                    profit_val    = float(sold['profit'])
+                    wholesale_product_rows.append({
+                        'product_name'  : p.name if len(wholesale_solds) == 1 else f"{p.name} (price {sold['selling_price']})",
+                        'opening_qty'   : opening_qty_prod if idx == 0 else 0,
+                        'purchased_qty' : purchased_qty if idx == 0 else 0,
+                        'purchase_price': float(p.cost_price or 0) if idx == 0 else 0,
+                        'sold_qty'      : sold_qty,
+                        'selling_price' : float(sold['selling_price']),
+                        'closing_qty'   : closing_qty_prod if idx == 0 else 0,
+                        'profit'        : profit_val,
+                        'total_sale'    : total_sale,
+                    })
+
+            # Keep original product_rows for compatibility
             if not solds:
                 product_rows.append({
                     'product_name'  : p.name,
@@ -130,9 +207,7 @@ def daily_report_view(request):
                     sold_qty      = float(sold['sold_qty'])
                     total_sale    = float(sold['total_sale'])
                     profit_val    = float(sold['profit'])
-                    
                     bill_type_label = "Retail" if sold['sale__bill_type'] == 'RETAIL' else "Wholesale"
-                    
                     product_rows.append({
                         'product_name'  : f"{p.name} ({bill_type_label})",
                         'opening_qty'   : opening_qty_prod if idx == 0 else 0,
@@ -144,6 +219,43 @@ def daily_report_view(request):
                         'profit'        : profit_val,
                         'total_sale'    : total_sale,
                     })
+
+        # Totals for total_sold
+        total_sold_totals = {
+            'opening_qty': sum(row['opening_qty'] for row in total_sold_rows),
+            'purchased_qty': sum(row['purchased_qty'] for row in total_sold_rows),
+            'sold_qty': sum(row['sold_qty'] for row in total_sold_rows),
+            'closing_qty': sum(row['closing_qty'] for row in total_sold_rows),
+        }
+
+        # Totals for retail
+        retail_totals = {
+            'opening_qty': sum(row['opening_qty'] for row in retail_product_rows),
+            'purchased_qty': sum(row['purchased_qty'] for row in retail_product_rows),
+            'sold_qty': sum(row['sold_qty'] for row in retail_product_rows),
+            'closing_qty': sum(row['closing_qty'] for row in retail_product_rows),
+            'profit': sum(row['profit'] for row in retail_product_rows),
+            'total_sale': sum(row['total_sale'] for row in retail_product_rows),
+        }
+
+        # Totals for wholesale
+        wholesale_totals = {
+            'opening_qty': sum(row['opening_qty'] for row in wholesale_product_rows),
+            'purchased_qty': sum(row['purchased_qty'] for row in wholesale_product_rows),
+            'sold_qty': sum(row['sold_qty'] for row in wholesale_product_rows),
+            'closing_qty': sum(row['closing_qty'] for row in wholesale_product_rows),
+            'profit': sum(row['profit'] for row in wholesale_product_rows),
+            'total_sale': sum(row['total_sale'] for row in wholesale_product_rows),
+        }
+
+        # Also get total retail sales and total wholesale sales amounts directly
+        retail_sales_amount = float(SaleItem.objects.filter(
+            sale__store=store, sale__created_at__range=(r_start, r_end), sale__bill_type='RETAIL'
+        ).aggregate(s=Sum('total_amount'))['s'] or 0)
+
+        wholesale_sales_amount = float(SaleItem.objects.filter(
+            sale__store=store, sale__created_at__range=(r_start, r_end), sale__bill_type='WHOLESALE'
+        ).aggregate(s=Sum('total_amount'))['s'] or 0)
 
         # ── Summary ─────────────────────────────────────────────────────────────
         agg = SaleItem.objects.filter(
@@ -171,6 +283,14 @@ def daily_report_view(request):
         'from_date'        : from_date,
         'to_date'          : to_date,
         'product_rows'     : product_rows,
+        'total_sold_rows'  : total_sold_rows,
+        'retail_product_rows': retail_product_rows,
+        'wholesale_product_rows': wholesale_product_rows,
+        'total_sold_totals': total_sold_totals,
+        'retail_totals'    : retail_totals,
+        'wholesale_totals' : wholesale_totals,
+        'retail_sales_amount': retail_sales_amount,
+        'wholesale_sales_amount': wholesale_sales_amount,
         'daily_expenses'   : daily_expenses,
         'monthly_expenses' : monthly_expenses,
         'all_expenses'     : all_expenses,

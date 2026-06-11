@@ -126,6 +126,30 @@ class ReportsViewTestCase(TestCase):
         self.assertIn('2.000', html_content)
         self.assertIn('5.000', html_content)
 
+    def test_daily_report_view_tabs_and_breakdowns(self):
+        self.client.login(username='testowner', password='password123')
+        response = self.client.get('/reports/daily/')
+        self.assertEqual(response.status_code, 200)
+        
+        # Verify context variables for tabs
+        self.assertIn('total_sold_rows', response.context)
+        self.assertIn('retail_product_rows', response.context)
+        self.assertIn('wholesale_product_rows', response.context)
+        self.assertIn('retail_sales_amount', response.context)
+        self.assertIn('wholesale_sales_amount', response.context)
+        
+        # Verify correct values in context
+        self.assertEqual(response.context['retail_sales_amount'], 200.0)
+        self.assertEqual(response.context['wholesale_sales_amount'], 400.0)
+        
+        # Verify content renders in HTML
+        html_content = response.content.decode('utf-8')
+        self.assertIn('Total Sold (Qty Only)', html_content)
+        self.assertIn('Retail (With Pricing)', html_content)
+        self.assertIn('Wholesale (With Pricing)', html_content)
+        self.assertIn('Total Retail Sales', html_content)
+        self.assertIn('Total Wholesale Sales', html_content)
+
 
 class CustomerAndCreditsTestCase(TestCase):
     def setUp(self):

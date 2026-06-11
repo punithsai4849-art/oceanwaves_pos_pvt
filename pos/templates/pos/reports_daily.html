@@ -46,6 +46,10 @@
 .empty-msg{text-align:center;padding:32px;color:var(--muted);}
 .no-data-row td{text-align:center;padding:32px;color:var(--muted);}
 @media(max-width:768px){.rpt-table{display:block;overflow-x:auto;}.summary-grid{grid-template-columns:1fr;}}
+.btn-filter-tab{background:var(--card);color:var(--text);border:1px solid var(--border);padding:10px 18px;border-radius:30px;font-weight:700;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:8px;box-shadow:var(--shadow);transition:all 0.2s ease;}
+.btn-filter-tab:hover{background:rgba(26,188,156,0.1);border-color:#1abc9c;}
+.btn-filter-tab.active{background:linear-gradient(135deg,#1a5276 0%,#1abc9c 100%);color:#fff;border-color:transparent;}
+@media print{.report-filter-tabs{display:none!important;}}
 </style>
 {% endblock %}
 
@@ -129,11 +133,71 @@
     </div>
   </div>
 
-  <!-- Product Report Table -->
-  <div class="section-card">
+  <!-- Filters/Tabs for Product Report -->
+  <div class="report-filter-tabs" style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
+    <button type="button" class="btn-filter-tab active" onclick="switchReportTab('total_sold')">
+      <i class="fas fa-cubes"></i> Total Sold (Qty Only)
+    </button>
+    <button type="button" class="btn-filter-tab" onclick="switchReportTab('retail')">
+      <i class="fas fa-shopping-basket"></i> Retail (With Pricing)
+    </button>
+    <button type="button" class="btn-filter-tab" onclick="switchReportTab('wholesale')">
+      <i class="fas fa-truck-loading"></i> Wholesale (With Pricing)
+    </button>
+  </div>
+
+  <!-- Tab 1: Total Sold Table (Qty Only) -->
+  <div id="tab-content-total_sold" class="tab-content-section section-card">
     <div class="section-hdr">
-      <h3><i class="fas fa-boxes"></i> Product-Wise Summary</h3>
-      <span style="font-size:12px;color:var(--muted);">{{ product_rows|length }} product(s)</span>
+      <h3><i class="fas fa-boxes"></i> Product-Wise Summary (Total Sold Qty)</h3>
+      <span style="font-size:12px;color:var(--muted);">{{ total_sold_rows|length }} product(s)</span>
+    </div>
+    <div style="overflow-x:auto;">
+      <table class="rpt-table">
+        <thead>
+          <tr>
+            <th>S.No</th>
+            <th>Product Name</th>
+            <th>Opening Qty</th>
+            <th>Purchased Qty</th>
+            <th>Sold Qty</th>
+            <th>Closing Qty</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in total_sold_rows %}
+          <tr>
+            <td>{{ forloop.counter }}</td>
+            <td><strong>{{ row.product_name }}</strong></td>
+            <td>{{ row.opening_qty|floatformat:2 }} kg</td>
+            <td>{{ row.purchased_qty|floatformat:2 }} kg</td>
+            <td><strong>{{ row.sold_qty|floatformat:2 }} kg</strong></td>
+            <td>{{ row.closing_qty|floatformat:2 }} kg</td>
+          </tr>
+          {% empty %}
+          <tr class="no-data-row"><td colspan="6"><i class="fas fa-info-circle"></i><p>No stock movement/sales recorded for this date.</p></td></tr>
+          {% endfor %}
+        </tbody>
+        {% if total_sold_rows %}
+        <tfoot>
+          <tr>
+            <td colspan="2">TOTALS</td>
+            <td>{{ total_sold_totals.opening_qty|floatformat:2 }} kg</td>
+            <td>{{ total_sold_totals.purchased_qty|floatformat:2 }} kg</td>
+            <td>{{ total_sold_totals.sold_qty|floatformat:2 }} kg</td>
+            <td>{{ total_sold_totals.closing_qty|floatformat:2 }} kg</td>
+          </tr>
+        </tfoot>
+        {% endif %}
+      </table>
+    </div>
+  </div>
+
+  <!-- Tab 2: Retail Table (With Pricing) -->
+  <div id="tab-content-retail" class="tab-content-section section-card" style="display:none;">
+    <div class="section-hdr">
+      <h3><i class="fas fa-shopping-basket"></i> Product Retail Sales Summary</h3>
+      <span style="font-size:12px;color:var(--muted);">{{ retail_product_rows|length }} product(s)</span>
     </div>
     <div style="overflow-x:auto;">
       <table class="rpt-table">
@@ -152,7 +216,7 @@
           </tr>
         </thead>
         <tbody>
-          {% for row in product_rows %}
+          {% for row in retail_product_rows %}
           <tr>
             <td>{{ forloop.counter }}</td>
             <td><strong>{{ row.product_name }}</strong></td>
@@ -168,18 +232,82 @@
             <td><strong>₹{{ row.total_sale|floatformat:2 }}</strong></td>
           </tr>
           {% empty %}
-          <tr class="no-data-row"><td colspan="10"><i class="fas fa-info-circle"></i><p>No sales recorded for this date.</p></td></tr>
+          <tr class="no-data-row"><td colspan="10"><i class="fas fa-info-circle"></i><p>No retail sales recorded for this date.</p></td></tr>
           {% endfor %}
         </tbody>
-        {% if product_rows %}
+        {% if retail_product_rows %}
         <tfoot>
           <tr>
             <td colspan="2">TOTALS</td>
-            <td>—</td><td>—</td><td>—</td>
-            <td>{{ product_rows|length }} items</td>
-            <td>—</td><td>—</td>
-            <td class="{% if gross_profit >= 0 %}profit-pos{% else %}profit-neg{% endif %}">₹{{ gross_profit|floatformat:2 }}</td>
-            <td>₹{{ total_sales|floatformat:2 }}</td>
+            <td>{{ retail_totals.opening_qty|floatformat:2 }} kg</td>
+            <td>{{ retail_totals.purchased_qty|floatformat:2 }} kg</td>
+            <td>—</td>
+            <td>{{ retail_totals.sold_qty|floatformat:2 }} kg</td>
+            <td>—</td>
+            <td>{{ retail_totals.closing_qty|floatformat:2 }} kg</td>
+            <td class="{% if retail_totals.profit >= 0 %}profit-pos{% else %}profit-neg{% endif %}">₹{{ retail_totals.profit|floatformat:2 }}</td>
+            <td>₹{{ retail_totals.total_sale|floatformat:2 }}</td>
+          </tr>
+        </tfoot>
+        {% endif %}
+      </table>
+    </div>
+  </div>
+
+  <!-- Tab 3: Wholesale Table (With Pricing) -->
+  <div id="tab-content-wholesale" class="tab-content-section section-card" style="display:none;">
+    <div class="section-hdr">
+      <h3><i class="fas fa-truck-loading"></i> Product Wholesale Sales Summary</h3>
+      <span style="font-size:12px;color:var(--muted);">{{ wholesale_product_rows|length }} product(s)</span>
+    </div>
+    <div style="overflow-x:auto;">
+      <table class="rpt-table">
+        <thead>
+          <tr>
+            <th>S.No</th>
+            <th>Product Name</th>
+            <th>Opening Qty</th>
+            <th>Purchased Qty</th>
+            <th>Purchase Price</th>
+            <th>Sold Qty</th>
+            <th>Selling Price</th>
+            <th>Closing Qty</th>
+            <th>Profit (₹)</th>
+            <th>Total Sale (₹)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in wholesale_product_rows %}
+          <tr>
+            <td>{{ forloop.counter }}</td>
+            <td><strong>{{ row.product_name }}</strong></td>
+            <td>{{ row.opening_qty|floatformat:2 }} kg</td>
+            <td>{{ row.purchased_qty|floatformat:2 }} kg</td>
+            <td>₹{{ row.purchase_price|floatformat:2 }}</td>
+            <td>{{ row.sold_qty|floatformat:2 }} kg</td>
+            <td>₹{{ row.selling_price|floatformat:2 }}</td>
+            <td>{{ row.closing_qty|floatformat:2 }} kg</td>
+            <td class="{% if row.profit >= 0 %}profit-pos{% else %}profit-neg{% endif %}">
+              ₹{{ row.profit|floatformat:2 }}
+            </td>
+            <td><strong>₹{{ row.total_sale|floatformat:2 }}</strong></td>
+          </tr>
+          {% empty %}
+          <tr class="no-data-row"><td colspan="10"><i class="fas fa-info-circle"></i><p>No wholesale sales recorded for this date.</p></td></tr>
+          {% endfor %}
+        </tbody>
+        {% if wholesale_product_rows %}
+        <tfoot>
+          <tr>
+            <td colspan="2">TOTALS</td>
+            <td>{{ wholesale_totals.opening_qty|floatformat:2 }} kg</td>
+            <td>{{ wholesale_totals.purchased_qty|floatformat:2 }} kg</td>
+            <td>—</td>
+            <td>{{ wholesale_totals.sold_qty|floatformat:2 }} kg</td>
+            <td>—</td>
+            <td>{{ wholesale_totals.closing_qty|floatformat:2 }} kg</td>
+            <td class="{% if wholesale_totals.profit >= 0 %}profit-pos{% else %}profit-neg{% endif %}">₹{{ wholesale_totals.profit|floatformat:2 }}</td>
+            <td>₹{{ wholesale_totals.total_sale|floatformat:2 }}</td>
           </tr>
         </tfoot>
         {% endif %}
@@ -197,6 +325,8 @@
       </div>
       <div>
         <div class="sum-row"><span class="sum-lbl">Total Sales</span><span class="sum-val blue">₹{{ total_sales|floatformat:2 }}</span></div>
+        <div class="sum-row" style="padding-left:36px;border-bottom:1px dashed var(--border);background:rgba(0,0,0,0.01);"><span class="sum-lbl" style="font-size:12px;">• Total Retail Sales</span><span class="sum-val" style="font-size:12.5px;color:#10b981;">₹{{ retail_sales_amount|floatformat:2 }}</span></div>
+        <div class="sum-row" style="padding-left:36px;border-bottom:1px dashed var(--border);background:rgba(0,0,0,0.01);"><span class="sum-lbl" style="font-size:12px;">• Total Wholesale Sales</span><span class="sum-val" style="font-size:12.5px;color:#3b82f6;">₹{{ wholesale_sales_amount|floatformat:2 }}</span></div>
         <div class="sum-row"><span class="sum-lbl">Gross Profit</span><span class="sum-val green">₹{{ gross_profit|floatformat:2 }}</span></div>
         <div class="sum-row"><span class="sum-lbl">Daily Expenses</span><span class="sum-val red">₹{% with t=daily_expenses|length %}{% for e in daily_expenses %}{{ e.amount|add:"0" }}{% endfor %}{% endwith %}</span></div>
         <div class="sum-row"><span class="sum-lbl">Total Expenses</span><span class="sum-val red">₹{{ total_expenses|floatformat:2 }}</span></div>
@@ -275,4 +405,29 @@
   .page-wrap{padding:0!important;margin:0!important;}
 }
 </style>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function switchReportTab(tabName) {
+  // Hide all tab contents
+  document.querySelectorAll('.tab-content-section').forEach(el => {
+    el.style.display = 'none';
+  });
+  // Show selected tab content
+  const selected = document.getElementById('tab-content-' + tabName);
+  if (selected) {
+    selected.style.display = 'block';
+  }
+  // Update button active state
+  document.querySelectorAll('.btn-filter-tab').forEach(btn => {
+    btn.classList.remove('active');
+  });
+  // Find button with onclick attribute matching tabName
+  const btn = Array.from(document.querySelectorAll('.btn-filter-tab')).find(b => b.getAttribute('onclick').includes(tabName));
+  if (btn) {
+    btn.classList.add('active');
+  }
+}
+</script>
 {% endblock %}
