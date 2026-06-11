@@ -262,6 +262,10 @@ class RBACPermissionTestCase(TestCase):
         self.assertNotIn('today_profit', response.context)
         self.assertNotIn('today_cost', response.context)
         self.assertNotIn('week_profit', response.context)
+        self.assertNotIn('today_sales', response.context)
+        self.assertNotIn('week_sales', response.context)
+        self.assertIn('today_retail_bills', response.context)
+        self.assertIn('today_wholesale_bills', response.context)
 
         # Owner login
         self.client.login(username='owner', password='password123')
@@ -270,6 +274,8 @@ class RBACPermissionTestCase(TestCase):
         self.assertIn('today_profit', response.context)
         self.assertIn('today_cost', response.context)
         self.assertIn('week_profit', response.context)
+        self.assertIn('today_sales', response.context)
+        self.assertIn('week_sales', response.context)
 
     def test_cashier_blocked_from_product_actions(self):
         self.client.login(username='cashier', password='password123')

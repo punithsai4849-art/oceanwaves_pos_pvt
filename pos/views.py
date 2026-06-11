@@ -282,13 +282,31 @@ def dashboard(request):
             store = profile.store
             context.update({
                 'today_bills': total_b,
-                'today_sales': total_s,
                 'store': store,
             })
             if profile.is_owner:
                 context.update({
+                    'today_sales': total_s,
                     'today_profit': total_p,
                     'today_cost': total_s - total_p,
+                })
+            else:
+                # Cashier needs bill counts instead of sales/cost/profit
+                today_retail_bills = Sale.objects.filter(
+                    store=store,
+                    created_at__gte=tr_start,
+                    created_at__lte=tr_end,
+                    bill_type='RETAIL'
+                ).count()
+                today_wholesale_bills = Sale.objects.filter(
+                    store=store,
+                    created_at__gte=tr_start,
+                    created_at__lte=tr_end,
+                    bill_type='WHOLESALE'
+                ).count()
+                context.update({
+                    'today_retail_bills': today_retail_bills,
+                    'today_wholesale_bills': today_wholesale_bills,
                 })
             
             # Stock alerts for store
@@ -298,14 +316,11 @@ def dashboard(request):
             context['low_count'] = Product.objects.filter(store=store, is_active=True, stock_quantity__gt=0, stock_quantity__lte=F('low_stock_alert')).count()
 
             # Week Summary
-            week_ago = timezone.now() - timedelta(days=7)
             if profile.is_owner:
+                week_ago = timezone.now() - timedelta(days=7)
                 week_agg = SaleItem.objects.filter(sale__store=store, sale__created_at__gte=week_ago).aggregate(s=Sum('total_amount'), p=Sum('profit'))
                 context['week_sales'] = week_agg['s'] or 0
                 context['week_profit'] = week_agg['p'] or 0
-            else:
-                week_agg = SaleItem.objects.filter(sale__store=store, sale__created_at__gte=week_ago).aggregate(s=Sum('total_amount'))
-                context['week_sales'] = week_agg['s'] or 0
 
         # Recent Bills (Common)
         recent_q = Sale.objects.filter(created_at__gte=tr_start, created_at__lte=tr_end).order_by('-created_at')

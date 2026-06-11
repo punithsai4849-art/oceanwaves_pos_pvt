@@ -61,7 +61,14 @@
       <ul style="margin: 0; padding-left: 0; list-style: none; color: #7f1d1d; font-size: 13.5px; line-height: 1.8;">
         {% for credit in urgent_credits %}
         <li style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(185, 28, 28, 0.1); padding: 4px 0;">
-          <span><strong>{{ credit.customer.name }}</strong> owes <span style="color:#b91c1c; font-weight:900;">₹{{ credit.total_due|floatformat:0 }}</span></span>
+          <span>
+            <strong>{{ credit.customer.name }}</strong> 
+            {% if profile.is_owner %}
+              owes <span style="color:#b91c1c; font-weight:900;">₹{{ credit.total_due|floatformat:0 }}</span>
+            {% else %}
+              has urgent dues
+            {% endif %}
+          </span>
           <a href="{% url 'credits_list' %}" class="btn-sm" style="background:#b91c1c; color:#fff; padding:2px 8px; border-radius:4px;">Resolve</a>
         </li>
         {% endfor %}
@@ -78,7 +85,11 @@
         {% for credit in pending_credits %}
         <li style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(133, 77, 14, 0.1); padding: 4px 0;">
           <span><strong>{{ credit.customer.name }}</strong> (Due {{ credit.due_date|date:"d M" }})</span>
+          {% if profile.is_owner %}
           <span style="font-weight:700;">₹{{ credit.total_due|floatformat:0 }}</span>
+          {% else %}
+          <span style="font-weight:700; color: #854d0e;">Pending</span>
+          {% endif %}
         </li>
         {% endfor %}
       </ul>
@@ -90,7 +101,8 @@
 
   <!-- Today KPIs -->
   <h3 class="section-title">📅 Today's Summary</h3>
-  <div class="kpi-grid" {% if not profile.is_owner %}style="grid-template-columns: repeat(2, 1fr);"{% endif %}>
+  {% if profile.is_owner %}
+  <div class="kpi-grid">
     <div class="kpi blue">
       <div class="kpi-icon"><i class="fas fa-receipt"></i></div>
       <div class="kpi-body"><span class="kpi-val">{{ today_bills }}</span><span class="kpi-lbl">Bills Today</span></div>
@@ -99,7 +111,6 @@
       <div class="kpi-icon"><i class="fas fa-rupee-sign"></i></div>
       <div class="kpi-body"><span class="kpi-val">₹{{ today_sales|floatformat:0 }}</span><span class="kpi-lbl">Sales Today</span></div>
     </div>
-    {% if profile.is_owner %}
     <div class="kpi orange">
       <div class="kpi-icon"><i class="fas fa-shopping-cart"></i></div>
       <div class="kpi-body"><span class="kpi-val">₹{{ today_cost|floatformat:0 }}</span><span class="kpi-lbl">Cost Today</span></div>
@@ -108,8 +119,23 @@
       <div class="kpi-icon"><i class="fas fa-chart-line"></i></div>
       <div class="kpi-body"><span class="kpi-val">₹{{ today_profit|floatformat:0 }}</span><span class="kpi-lbl">Profit Today</span></div>
     </div>
-    {% endif %}
   </div>
+  {% else %}
+  <div class="kpi-grid" style="grid-template-columns: repeat(3, 1fr);">
+    <div class="kpi blue">
+      <div class="kpi-icon"><i class="fas fa-receipt"></i></div>
+      <div class="kpi-body"><span class="kpi-val">{{ today_bills }}</span><span class="kpi-lbl">Bills Today</span></div>
+    </div>
+    <div class="kpi green">
+      <div class="kpi-icon"><i class="fas fa-shopping-basket"></i></div>
+      <div class="kpi-body"><span class="kpi-val">{{ today_retail_bills }}</span><span class="kpi-lbl">Retail Bills</span></div>
+    </div>
+    <div class="kpi orange">
+      <div class="kpi-icon"><i class="fas fa-truck-loading"></i></div>
+      <div class="kpi-body"><span class="kpi-val">{{ today_wholesale_bills }}</span><span class="kpi-lbl">Wholesale Bills</span></div>
+    </div>
+  </div>
+  {% endif %}
 
   <div class="dash-grid2">
     <!-- Recent Bills -->
@@ -119,17 +145,28 @@
         {% if profile.is_owner %}<a href="{% url 'reports' %}" class="btn-sm blue">View All</a>{% endif %}
       </div>
       <table class="mini-table">
-        <thead><tr><th>Bill #</th><th>Type</th><th>Amount</th><th>Time</th></tr></thead>
+        <thead>
+          <tr>
+            <th>Bill #</th>
+            <th>Type</th>
+            {% if profile.is_owner %}
+            <th>Amount</th>
+            {% endif %}
+            <th>Time</th>
+          </tr>
+        </thead>
         <tbody>
         {% for s in recent_sales %}
         <tr>
           <td><strong>{{ s.bill_number }}</strong></td>
           <td><span class="pill {% if s.bill_type == 'WHOLESALE' %}pill-blue{% else %}pill-green{% endif %}">{{ s.bill_type }}</span></td>
+          {% if profile.is_owner %}
           <td>₹{{ s.grand_total }}</td>
+          {% endif %}
           <td>{{ s.created_at|date:"h:i A" }}</td>
         </tr>
         {% empty %}
-        <tr><td colspan="4" class="empty-mini">No bills today</td></tr>
+        <tr><td colspan="{% if profile.is_owner %}4{% else %}3{% endif %}" class="empty-mini">No bills today</td></tr>
         {% endfor %}
         </tbody>
       </table>
