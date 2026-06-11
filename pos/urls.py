@@ -98,6 +98,8 @@ urlpatterns = [
     path('credits/<int:cid>/pay/',                  views.credit_pay,                   name='credit_pay'),
     path('credits/customer/<int:customer_id>/',     views.customer_credit_detail,       name='customer_credit_detail'),
     path('credits/customer/<int:customer_id>/pay/', views.record_credit_payment,        name='record_credit_payment'),
+    path('credits/<int:record_id>/delete/',         views.credit_delete,                name='credit_delete'),
+    path('credits/payment/<int:payment_id>/delete/', views.credit_payment_delete,        name='credit_payment_delete'),
 
     # Ledger
     path('ledger/',                                       views_financials.ledger_books_list,  name='ledger_view'),

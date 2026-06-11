@@ -88,10 +88,12 @@
             {% else %}<span class="pill pill-green">OK</span>{% endif %}
           </td>
           <td style="display:flex;gap:5px;">
+            {% if not profile.is_staff_role %}
             <button class="btn-icon-sm teal" title="Adjust Stock"
                 onclick="openRestock({{ p.id }},'{{ p.name|escapejs }}',{{ p.stock_quantity }},{{ p.cost_price|default:0 }})">
               <i class="fas fa-balance-scale"></i>
             </button>
+            {% endif %}
             {% if profile.is_owner or profile.is_area_manager %}
             <button class="btn-icon-sm blue" title="Edit"
                 onclick="openEdit({{ p.id }},'{{ p.name|escapejs }}','{{ p.category }}',{{ p.cost_price }},{{ p.retail_price }},{{ p.wholesale_price }},{{ p.stock_quantity }},{{ p.low_stock_alert }})">

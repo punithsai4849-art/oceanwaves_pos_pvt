@@ -90,7 +90,7 @@
 
   <!-- Today KPIs -->
   <h3 class="section-title">📅 Today's Summary</h3>
-  <div class="kpi-grid">
+  <div class="kpi-grid" {% if not profile.is_owner %}style="grid-template-columns: repeat(2, 1fr);"{% endif %}>
     <div class="kpi blue">
       <div class="kpi-icon"><i class="fas fa-receipt"></i></div>
       <div class="kpi-body"><span class="kpi-val">{{ today_bills }}</span><span class="kpi-lbl">Bills Today</span></div>
@@ -99,6 +99,7 @@
       <div class="kpi-icon"><i class="fas fa-rupee-sign"></i></div>
       <div class="kpi-body"><span class="kpi-val">₹{{ today_sales|floatformat:0 }}</span><span class="kpi-lbl">Sales Today</span></div>
     </div>
+    {% if profile.is_owner %}
     <div class="kpi orange">
       <div class="kpi-icon"><i class="fas fa-shopping-cart"></i></div>
       <div class="kpi-body"><span class="kpi-val">₹{{ today_cost|floatformat:0 }}</span><span class="kpi-lbl">Cost Today</span></div>
@@ -107,6 +108,7 @@
       <div class="kpi-icon"><i class="fas fa-chart-line"></i></div>
       <div class="kpi-body"><span class="kpi-val">₹{{ today_profit|floatformat:0 }}</span><span class="kpi-lbl">Profit Today</span></div>
     </div>
+    {% endif %}
   </div>
 
   <div class="dash-grid2">

@@ -256,22 +256,26 @@ def dashboard(request):
             total_b += b_c
             total_s += s_s
             total_p += s_p
-            store_data.append({
+            
+            entry = {
                 'store': s,
                 'bill_count': b_c,
                 'total_sales': s_s,
-                'total_profit': s_p,
                 'out_stock': Product.objects.filter(store=s, is_active=True, stock_quantity__lte=0).count(),
                 'low_stock': Product.objects.filter(store=s, is_active=True, stock_quantity__gt=0, stock_quantity__lte=F('low_stock_alert')).count(),
-            })
+            }
+            if profile.is_owner or profile.is_area_manager or profile.is_subadmin:
+                entry['total_profit'] = s_p
+            store_data.append(entry)
 
         context.update({
             'total_stores': len(stores),
             'total_bills': total_b,
             'global_sales': total_s,
-            'global_profit': total_p,
             'store_data': store_data,
         })
+        if profile.is_owner or profile.is_area_manager or profile.is_subadmin:
+            context['global_profit'] = total_p
 
         if not (profile.is_superadmin or profile.is_area_manager or profile.is_subadmin):
             # Store-Specific Stats
@@ -279,10 +283,13 @@ def dashboard(request):
             context.update({
                 'today_bills': total_b,
                 'today_sales': total_s,
-                'today_profit': total_p,
-                'today_cost': total_s - total_p,
                 'store': store,
             })
+            if profile.is_owner:
+                context.update({
+                    'today_profit': total_p,
+                    'today_cost': total_s - total_p,
+                })
             
             # Stock alerts for store
             low_p = Product.objects.filter(store=store, is_active=True).filter(Q(stock_quantity__lte=0) | Q(stock_quantity__lte=F('low_stock_alert'))).order_by('stock_quantity')
@@ -292,9 +299,13 @@ def dashboard(request):
 
             # Week Summary
             week_ago = timezone.now() - timedelta(days=7)
-            week_agg = SaleItem.objects.filter(sale__store=store, sale__created_at__gte=week_ago).aggregate(s=Sum('total_amount'), p=Sum('profit'))
-            context['week_sales'] = week_agg['s'] or 0
-            context['week_profit'] = week_agg['p'] or 0
+            if profile.is_owner:
+                week_agg = SaleItem.objects.filter(sale__store=store, sale__created_at__gte=week_ago).aggregate(s=Sum('total_amount'), p=Sum('profit'))
+                context['week_sales'] = week_agg['s'] or 0
+                context['week_profit'] = week_agg['p'] or 0
+            else:
+                week_agg = SaleItem.objects.filter(sale__store=store, sale__created_at__gte=week_ago).aggregate(s=Sum('total_amount'))
+                context['week_sales'] = week_agg['s'] or 0
 
         # Recent Bills (Common)
         recent_q = Sale.objects.filter(created_at__gte=tr_start, created_at__lte=tr_end).order_by('-created_at')
@@ -730,7 +741,7 @@ def billing(request):
         return redirect('dashboard')
     products = Product.objects.filter(store=store, is_active=True).order_by('category', 'name')
     from .models import WholesaleCustomer
-    w_customers = WholesaleCustomer.objects.all()
+    w_customers = WholesaleCustomer.objects.filter(store=store)
     return render(request, 'pos/billing.html', {
         'products': products, 
         'store': store, 
@@ -900,15 +911,15 @@ def save_bill(request):
 
             from .models import WholesaleCustomer, CreditRecord
             if cname:
-                # Lookup by Name OR Customer Code
+                # Lookup by Name OR Customer Code, scoped to the current store
                 wc = WholesaleCustomer.objects.filter(
                     Q(name__iexact=cname) | Q(customer_code__iexact=cname)
-                ).first()
+                ).filter(store=store).first()
                 if payment == 'CREDIT':
                     if not wc:
                         wc = WholesaleCustomer.objects.create(
                             name=cname, phone=sale.customer_phone, gst=sale.customer_gst,
-                            address=sale.customer_address,
+                            address=sale.customer_address, store=store,
                             is_credit_enabled=True, credit_duration_days=7, created_by=request.user
                         )
                     else:
@@ -1080,6 +1091,9 @@ def inventory(request):
 @require_profile
 def product_add(request):
     profile = get_profile(request.user)
+    if profile.is_staff_role:
+        messages.error(request, 'Access denied.')
+        return redirect('dashboard')
     store   = profile.store
 
     # Area Managers: resolve store from POST data or AreaManagerStore
@@ -1130,6 +1144,9 @@ def product_add(request):
 @require_profile
 def product_edit(request, pid):
     profile = get_profile(request.user)
+    if profile.is_staff_role:
+        messages.error(request, 'Access denied.')
+        return redirect('dashboard')
 
     # Area Managers may not have profile.store — verify via AreaManagerStore
     if profile.is_superadmin:
@@ -1184,6 +1201,9 @@ def product_edit(request, pid):
 @require_profile
 def product_restock(request, pid):
     profile = get_profile(request.user)
+    if profile.is_staff_role:
+        messages.error(request, 'Access denied.')
+        return redirect('dashboard')
 
     if profile.is_superadmin:
         p = get_object_or_404(Product, id=pid)
@@ -1276,6 +1296,9 @@ def product_restock(request, pid):
 @require_profile
 def product_delete(request, pid):
     profile = get_profile(request.user)
+    if profile.is_staff_role:
+        messages.error(request, 'Access denied.')
+        return redirect('dashboard')
 
     if profile.is_superadmin:
         p = get_object_or_404(Product, id=pid)
@@ -2348,15 +2371,15 @@ def wholesale_verify_otp(request):
         wc = None
         from .models import WholesaleCustomer, CreditRecord
         if cname:
-            # Lookup by Name OR Customer Code
+            # Lookup by Name OR Customer Code, scoped to the current store
             wc = WholesaleCustomer.objects.filter(
                 Q(name__iexact=cname) | Q(customer_code__iexact=cname)
-            ).first()
+            ).filter(store=store).first()
             if payment == 'CREDIT':
                 if not wc:
                     wc = WholesaleCustomer.objects.create(
                         name=cname, phone=sale.customer_phone, gst=sale.customer_gst,
-                        address=sale.customer_address,
+                        address=sale.customer_address, store=store,
                         is_credit_enabled=True, credit_duration_days=7, created_by=request.user
                     )
                 else:
@@ -2587,18 +2610,30 @@ def wholesale_customers(request):
     elif profile.is_area_manager or profile.is_wholesale_exec:
         accessible_store_ids = AreaManagerStore.objects.filter(manager=profile).values_list('store_id', flat=True)
         customers = WholesaleCustomer.objects.filter(
-            Q(store_id__in=accessible_store_ids) | Q(sales__store_id__in=accessible_store_ids)
-        ).distinct()
+            store_id__in=accessible_store_ids
+        )
     elif profile.store:
         customers = WholesaleCustomer.objects.filter(
-            Q(store=profile.store) | Q(sales__store=profile.store)
-        ).distinct()
+            store=profile.store
+        )
     else:
         customers = WholesaleCustomer.objects.none()
     
     store_filter = request.GET.get('store_filter')
     if store_filter and store_filter.isdigit():
-        customers = customers.filter(Q(store_id=store_filter) | Q(sales__store_id=store_filter)).distinct()
+        if not profile.is_superadmin:
+            if profile.is_area_manager or profile.is_wholesale_exec:
+                accessible_store_ids = AreaManagerStore.objects.filter(manager=profile).values_list('store_id', flat=True)
+                if int(store_filter) in accessible_store_ids:
+                    customers = customers.filter(store_id=store_filter)
+                else:
+                    customers = WholesaleCustomer.objects.none()
+            elif profile.store and int(store_filter) == profile.store.id:
+                customers = customers.filter(store_id=store_filter)
+            else:
+                customers = WholesaleCustomer.objects.none()
+        else:
+            customers = customers.filter(store_id=store_filter)
         
     customers = customers.order_by('-created_at')
     return render(request, 'pos/wholesale_customers.html', {
@@ -2637,11 +2672,9 @@ def wholesale_customer_add(request):
                     store = profile.store
                 else:
                     store = None
-            else:
-                if not profile.is_superadmin and profile.store:
-                    store = profile.store
-                else:
-                    store = None
+            if not profile.is_superadmin and not store:
+                messages.error(request, 'Access denied: Invalid store.')
+                return redirect('wholesale_customers')
 
             wc = WholesaleCustomer.objects.create(
                 name=name,
@@ -2664,6 +2697,22 @@ def wholesale_customer_edit(request, cid):
     profile = get_profile(request.user)
 
     c = get_object_or_404(WholesaleCustomer, id=cid)
+    
+    # Access control
+    if not profile.is_superadmin:
+        if profile.is_area_manager or profile.is_wholesale_exec:
+            accessible_store_ids = AreaManagerStore.objects.filter(manager=profile).values_list('store_id', flat=True)
+            if c.store_id not in accessible_store_ids:
+                messages.error(request, 'Access denied.')
+                return redirect('wholesale_customers')
+        elif profile.store:
+            if c.store != profile.store:
+                messages.error(request, 'Access denied.')
+                return redirect('wholesale_customers')
+        else:
+            messages.error(request, 'Access denied.')
+            return redirect('wholesale_customers')
+
     if request.method == 'POST':
         name = request.POST.get('name', c.name).strip()
         if WholesaleCustomer.objects.filter(name__iexact=name).exclude(id=cid).exists():
@@ -2717,6 +2766,21 @@ def wholesale_customer_delete(request, cid):
         
     c = get_object_or_404(WholesaleCustomer, id=cid)
     
+    # Access control
+    if not profile.is_superadmin:
+        if profile.is_area_manager or profile.is_wholesale_exec:
+            accessible_store_ids = AreaManagerStore.objects.filter(manager=profile).values_list('store_id', flat=True)
+            if c.store_id not in accessible_store_ids:
+                messages.error(request, 'Access denied.')
+                return redirect('wholesale_customers')
+        elif profile.store:
+            if c.store != profile.store:
+                messages.error(request, 'Access denied.')
+                return redirect('wholesale_customers')
+        else:
+            messages.error(request, 'Access denied.')
+            return redirect('wholesale_customers')
+    
     # Check if they have outstanding balances before deleting
     if c.balance > 0:
         messages.error(request, f'Cannot delete customer {c.name} because they have an outstanding balance of ₹{c.balance}.')
@@ -2748,23 +2812,29 @@ def credits_list(request):
     elif profile.is_area_manager or profile.is_wholesale_exec:
         accessible_store_ids = AreaManagerStore.objects.filter(manager=profile).values_list('store_id', flat=True)
         stores = Store.objects.filter(id__in=accessible_store_ids).order_by('name')
-        customers = customers.filter(
-            Q(credit_records__sale__store_id__in=accessible_store_ids) | Q(store_id__in=accessible_store_ids)
-        ).distinct()
+        customers = customers.filter(store_id__in=accessible_store_ids)
     elif profile.store:
         stores = stores.filter(id=profile.store.id)
-        customers = customers.filter(
-            Q(credit_records__sale__store=profile.store) | Q(store=profile.store)
-        ).distinct()
+        customers = customers.filter(store=profile.store)
     else:
         stores = Store.objects.none()
         customers = WholesaleCustomer.objects.none()
 
     store_filter = request.GET.get('store_filter')
     if store_filter and store_filter.isdigit():
-        customers = customers.filter(
-            Q(store_id=store_filter) | Q(credit_records__sale__store_id=store_filter)
-        ).distinct()
+        if not profile.is_superadmin:
+            if profile.is_area_manager or profile.is_wholesale_exec:
+                accessible_store_ids = AreaManagerStore.objects.filter(manager=profile).values_list('store_id', flat=True)
+                if int(store_filter) in accessible_store_ids:
+                    customers = customers.filter(store_id=store_filter)
+                else:
+                    customers = WholesaleCustomer.objects.none()
+            elif profile.store and int(store_filter) == profile.store.id:
+                customers = customers.filter(store_id=store_filter)
+            else:
+                customers = WholesaleCustomer.objects.none()
+        else:
+            customers = customers.filter(store_id=store_filter)
 
     q_search = request.GET.get('q', '').strip()
     if q_search:
@@ -2799,6 +2869,21 @@ def customer_credit_detail(request, customer_id):
     from .models import WholesaleCustomer, CreditRecord, CreditPayment
     customer = get_object_or_404(WholesaleCustomer, id=customer_id)
     
+    # Access control
+    if not profile.is_superadmin:
+        if profile.is_area_manager or profile.is_wholesale_exec:
+            accessible_store_ids = AreaManagerStore.objects.filter(manager=profile).values_list('store_id', flat=True)
+            if customer.store_id not in accessible_store_ids:
+                messages.error(request, 'Access denied.')
+                return redirect('credits_list')
+        elif profile.store:
+            if customer.store != profile.store:
+                messages.error(request, 'Access denied.')
+                return redirect('credits_list')
+        else:
+            messages.error(request, 'Access denied.')
+            return redirect('credits_list')
+
     records = list(customer.credit_records.select_related('sale').prefetch_related('sale__items').order_by('-created_at'))
     payments = list(customer.payments.order_by('-date', '-created_at'))
     
@@ -2839,8 +2924,25 @@ def customer_credit_detail(request, customer_id):
 @require_profile
 @require_POST
 def record_credit_payment(request, customer_id):
+    profile = get_profile(request.user)
     from .models import WholesaleCustomer, CreditPayment
     customer = get_object_or_404(WholesaleCustomer, id=customer_id)
+    
+    # Access control
+    if not profile.is_superadmin:
+        if profile.is_area_manager or profile.is_wholesale_exec:
+            accessible_store_ids = AreaManagerStore.objects.filter(manager=profile).values_list('store_id', flat=True)
+            if customer.store_id not in accessible_store_ids:
+                messages.error(request, 'Access denied.')
+                return redirect('credits_list')
+        elif profile.store:
+            if customer.store != profile.store:
+                messages.error(request, 'Access denied.')
+                return redirect('credits_list')
+        else:
+            messages.error(request, 'Access denied.')
+            return redirect('credits_list')
+
     amount = request.POST.get('amount')
     mode = request.POST.get('payment_mode', 'CASH')
     note = request.POST.get('note', '')
@@ -2892,6 +2994,21 @@ def credit_add_external(request):
             
         customer = get_object_or_404(WholesaleCustomer, id=customer_id)
         
+        # Access control
+        if not profile.is_superadmin:
+            if profile.is_area_manager or profile.is_wholesale_exec:
+                accessible_store_ids = AreaManagerStore.objects.filter(manager=profile).values_list('store_id', flat=True)
+                if customer.store_id not in accessible_store_ids:
+                    messages.error(request, 'Access denied.')
+                    return redirect('credits_list')
+            elif profile.store:
+                if customer.store != profile.store:
+                    messages.error(request, 'Access denied.')
+                    return redirect('credits_list')
+            else:
+                messages.error(request, 'Access denied.')
+                return redirect('credits_list')
+
         try:
             amt = decimal.Decimal(str(amount))
             CreditRecord.objects.create(
@@ -2909,6 +3026,14 @@ def credit_add_external(request):
             return redirect('credit_add_external')
             
     customers = WholesaleCustomer.objects.filter(is_credit_enabled=True)
+    if not profile.is_superadmin:
+        if profile.is_area_manager or profile.is_wholesale_exec:
+            accessible_store_ids = AreaManagerStore.objects.filter(manager=profile).values_list('store_id', flat=True)
+            customers = customers.filter(store_id__in=accessible_store_ids)
+        elif profile.store:
+            customers = customers.filter(store=profile.store)
+        else:
+            customers = WholesaleCustomer.objects.none()
     return render(request, 'pos/credit_add_external.html', {'customers': customers, 'profile': profile})
 
 
@@ -2925,11 +3050,11 @@ def credit_pay(request, cid):
         can_access = True
     elif record.is_external or not record.sale:
         # External credit: check customer's registered store
-        if profile.store and (record.customer.store == profile.store or not record.customer.store):
+        if profile.store and record.customer.store == profile.store:
             can_access = True
         elif profile.is_area_manager or profile.is_wholesale_exec:
             accessible_store_ids = AreaManagerStore.objects.filter(manager=profile).values_list('store_id', flat=True)
-            if record.customer.store_id in accessible_store_ids or not record.customer.store:
+            if record.customer.store_id in accessible_store_ids:
                 can_access = True
     else:
         # POS Sale credit: check sale's store
@@ -2948,10 +3073,10 @@ def credit_pay(request, cid):
 
     record.is_paid = True
     record.paid_on = timezone.now().date()
-    record.save()
-    messages.success(request, f'Credit for {record.customer.name} marked as paid.')
+    record.save(update_fields=['is_paid', 'paid_on'])
+    messages.success(request, 'Credit marked as paid.')
         
-    return redirect('credits_list')
+    return redirect('customer_credit_detail', customer_id=record.customer_id)
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  SESSION MANAGEMENT & ALERTS
@@ -3113,6 +3238,9 @@ def stock_request_approve(request, rid):
 def stock_request_receive(request, rid):
     """Store Owner records the quantity received and verifies against sent quantity."""
     profile = get_profile(request.user)
+    if profile.is_staff_role:
+        messages.error(request, 'Access denied.')
+        return redirect('dashboard')
     req = get_object_or_404(StockRequest, id=rid, store=profile.store)
     
     if req.status != 'APPROVED':
@@ -3167,3 +3295,35 @@ def mark_notifications_read(request):
     """Utility API to mark all notifications as read for current user."""
     Notification.objects.filter(user=request.user, is_read=False).update(is_read=True)
     return JsonResponse({'status': 'ok'})
+
+
+@require_POST
+@login_required
+@require_profile
+def credit_delete(request, record_id):
+    profile = get_profile(request.user)
+    if not profile.is_superadmin:
+        messages.error(request, 'Access denied.')
+        return redirect('credits_list')
+    from .models import CreditRecord
+    record = get_object_or_404(CreditRecord, id=record_id)
+    cust_id = record.customer_id
+    record.delete()
+    messages.success(request, 'Credit record deleted.')
+    return redirect('customer_credit_detail', customer_id=cust_id)
+
+
+@require_POST
+@login_required
+@require_profile
+def credit_payment_delete(request, payment_id):
+    profile = get_profile(request.user)
+    if not profile.is_superadmin:
+        messages.error(request, 'Access denied.')
+        return redirect('credits_list')
+    from .models import CreditPayment
+    payment = get_object_or_404(CreditPayment, id=payment_id)
+    cust_id = payment.customer_id
+    payment.delete()
+    messages.success(request, 'Payment record deleted.')
+    return redirect('customer_credit_detail', customer_id=cust_id)
