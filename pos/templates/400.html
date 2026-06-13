@@ -1,0 +1,75 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bad Request (400) — OCEANWAVES SEA FOODS</title>
+  <link rel="stylesheet" href="{% static 'pos/css/style.css' %}">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <style>
+    .error-card {
+      max-width: 460px;
+    }
+    .error-img {
+      max-width: 100%;
+      height: auto;
+      border-radius: var(--radius-sm);
+      margin-bottom: 20px;
+    }
+    .fallback-icon {
+      font-size: 72px;
+      color: var(--danger);
+      margin-bottom: 24px;
+      animation: shake 1s ease-in-out infinite;
+      display: inline-block;
+    }
+    .error-title {
+      font-size: 24px !important;
+      color: var(--primary-d) !important;
+      font-weight: 800 !important;
+      margin-bottom: 12px !important;
+    }
+    .error-message {
+      font-size: 14px;
+      color: var(--muted);
+      line-height: 1.6;
+      margin-bottom: 28px;
+    }
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      10%, 30%, 50%, 70%, 90% { transform: translateX(-4px); }
+      20%, 40%, 60%, 80% { transform: translateX(4px); }
+    }
+  </style>
+</head>
+<body class="login-page">
+  <div class="login-ocean">
+    <div class="wave w1"></div>
+    <div class="wave w2"></div>
+    <div class="wave w3"></div>
+  </div>
+  <div class="login-wrap">
+    <div class="login-card error-card">
+      <img src="{% static 'pos/images/logo.jpg' %}" alt="Logo" class="login-logo" style="width: 70px; height: 70px; border-width: 2px; margin-bottom: 12px;">
+      
+      <!-- Custom Designed Image (will display if user places the file in static assets) -->
+      <img src="{% static 'pos/images/400.png' %}" alt="Error 400" class="error-img" onerror="this.style.display='none'; document.getElementById('icon-fallback').style.display='inline-block';">
+      
+      <!-- Fallback illustration if static image is missing -->
+      <div id="icon-fallback" class="fallback-icon" style="display: none;">
+        <i class="fas fa-triangle-exclamation"></i>
+      </div>
+      
+      <h1 class="error-title">Bad Request (400)</h1>
+      <p class="error-message">
+        The server could not understand your request. Your navigation coordinates might be slightly off.
+      </p>
+      
+      <a href="/" class="login-btn" style="display: block; text-decoration: none; margin-top: 0; background: linear-gradient(135deg, var(--danger), #b91c1c); box-shadow: 0 2px 8px rgba(220,38,38,.2);">
+        <i class="fas fa-house"></i> Back to Dashboard
+      </a>
+    </div>
+  </div>
+</body>
+</html>

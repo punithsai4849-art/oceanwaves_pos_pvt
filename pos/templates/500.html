@@ -1,0 +1,74 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Server Error (500) — OCEANWAVES SEA FOODS</title>
+  <link rel="stylesheet" href="{% static 'pos/css/style.css' %}">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <style>
+    .error-card {
+      max-width: 460px;
+    }
+    .error-img {
+      max-width: 100%;
+      height: auto;
+      border-radius: var(--radius-sm);
+      margin-bottom: 20px;
+    }
+    .fallback-icon {
+      font-size: 72px;
+      color: #ea580c;
+      margin-bottom: 24px;
+      animation: rock 3s ease-in-out infinite;
+      display: inline-block;
+    }
+    .error-title {
+      font-size: 24px !important;
+      color: var(--primary-d) !important;
+      font-weight: 800 !important;
+      margin-bottom: 12px !important;
+    }
+    .error-message {
+      font-size: 14px;
+      color: var(--muted);
+      line-height: 1.6;
+      margin-bottom: 28px;
+    }
+    @keyframes rock {
+      0%, 100% { transform: rotate(-8deg) translateY(0); }
+      50% { transform: rotate(8deg) translateY(-5px); }
+    }
+  </style>
+</head>
+<body class="login-page">
+  <div class="login-ocean">
+    <div class="wave w1"></div>
+    <div class="wave w2"></div>
+    <div class="wave w3"></div>
+  </div>
+  <div class="login-wrap">
+    <div class="login-card error-card">
+      <img src="{% static 'pos/images/logo.jpg' %}" alt="Logo" class="login-logo" style="width: 70px; height: 70px; border-width: 2px; margin-bottom: 12px;">
+      
+      <!-- Custom Designed Image (will display if user places the file in static assets) -->
+      <img src="{% static 'pos/images/500.png' %}" alt="Error 500" class="error-img" onerror="this.style.display='none'; document.getElementById('icon-fallback').style.display='inline-block';">
+      
+      <!-- Fallback illustration if static image is missing -->
+      <div id="icon-fallback" class="fallback-icon" style="display: none;">
+        <i class="fas fa-life-ring"></i>
+      </div>
+      
+      <h1 class="error-title">Server Error (500)</h1>
+      <p class="error-message">
+        A wild storm hit our servers. Our crew is working hard to stabilize it. Please try again in a few moments.
+      </p>
+      
+      <a href="/" class="login-btn" style="display: block; text-decoration: none; margin-top: 0; background: linear-gradient(135deg, #ea580c, #c2410c); box-shadow: 0 2px 8px rgba(234,88,12,.2);">
+        <i class="fas fa-arrow-rotate-right"></i> Try Reloading
+      </a>
+    </div>
+  </div>
+</body>
+</html>
