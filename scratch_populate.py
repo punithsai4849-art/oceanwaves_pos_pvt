@@ -58,7 +58,7 @@ def run():
         'Green Land Food Court': WholesaleCustomer.objects.get(name='Green Land Food Court'),
     }
 
-    # Sales data list matching the user's itemized spreadsheet
+    # Sales data list matching the user's itemized spreadsheet + Greenland original VM data
     sales_data = [
         # 01-06-2026
         {'date': '2026-06-01', 'type': 'CREDIT', 'customer': 'JK Restaurant', 'product_id': 21, 'qty': 3.0, 'price': 450.0},
@@ -108,6 +108,7 @@ def run():
         # 13-06-2026
         {'date': '2026-06-13', 'type': 'CREDIT', 'customer': 'anandh restaurant', 'product_id': 24, 'qty': 10.0, 'price': 200.0},
         {'date': '2026-06-13', 'type': 'CREDIT', 'customer': 'JK Restaurant', 'product_id': 21, 'qty': 2.0, 'price': 450.0},
+        {'date': '2026-06-13', 'type': 'CREDIT', 'customer': 'Green Land Food Court', 'product_id': 24, 'qty': 2.0, 'price': 220.0}, # Preserved
     ]
 
     current_stocks = dict(initial_stocks)

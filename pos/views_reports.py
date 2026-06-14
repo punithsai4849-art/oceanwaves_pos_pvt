@@ -101,7 +101,16 @@ def daily_report_view(request):
         retail_product_rows = []
         wholesale_product_rows = []
 
-        products = list(Product.objects.filter(store=store, is_active=True))
+        # Get active products of the store
+        active_products = Product.objects.filter(store=store, is_active=True)
+        # Get any other products that had transactions/snapshots in this store
+        relevant_product_ids = set(active_products.values_list('id', flat=True))
+        relevant_product_ids.update(sold_map.keys())
+        relevant_product_ids.update(purchased_map.keys())
+        relevant_product_ids.update(first_snaps.keys())
+        relevant_product_ids.update(last_snaps.keys())
+
+        products = list(Product.objects.filter(id__in=relevant_product_ids).order_by('category', 'name'))
         for p in products:
             solds = sold_map.get(p.id, [])
             purchased_qty = float(purchased_map.get(p.id, 0))
@@ -270,7 +279,8 @@ def daily_report_view(request):
         profit_percentage = float(net_profit / total_sales * 100) if total_sales else 0
 
     # Re-fetch specific expense lists (cheap)
-    daily_expenses   = Expense.objects.filter(store=store, date__range=(from_date, to_date), expense_type='DAILY')
+    daily_expenses   = Expense.objects.filter(store=store, date__range=(from_date, to_date), expense_type='DAILY').exclude(category='PURCHASE')
+    daily_expenses_sum = float(daily_expenses.aggregate(t=Sum('amount'))['t'] or 0)
     monthly_expenses = Expense.objects.filter(store=store, date__range=(from_date, to_date), expense_type='MONTHLY').exclude(category='PURCHASE')
     all_expenses     = Expense.objects.filter(store=store, date__range=(from_date, to_date)).exclude(category='PURCHASE')
 
@@ -292,6 +302,7 @@ def daily_report_view(request):
         'retail_sales_amount': retail_sales_amount,
         'wholesale_sales_amount': wholesale_sales_amount,
         'daily_expenses'   : daily_expenses,
+        'daily_expenses_sum': daily_expenses_sum,
         'monthly_expenses' : monthly_expenses,
         'all_expenses'     : all_expenses,
         'total_sales'      : total_sales,
@@ -541,8 +552,17 @@ def export_daily_excel(request):
     first_snaps = {s.product_id: s for s in DailyStockSnapshot.objects.filter(store=store, date=from_date).select_related('product')}
     last_snaps = {s.product_id: s for s in DailyStockSnapshot.objects.filter(store=store, date=to_date).select_related('product')}
 
+    # Get active products of the store
+    active_products = Product.objects.filter(store=store, is_active=True)
+    # Get any other products that had transactions/snapshots in this store
+    relevant_product_ids = set(active_products.values_list('id', flat=True))
+    relevant_product_ids.update(sold_map.keys())
+    relevant_product_ids.update(purchased_map.keys())
+    relevant_product_ids.update(first_snaps.keys())
+    relevant_product_ids.update(last_snaps.keys())
+
     product_rows = []
-    products = Product.objects.filter(store=store, is_active=True)
+    products = Product.objects.filter(id__in=relevant_product_ids).order_by('category', 'name')
     for p in products:
         solds = sold_map.get(p.id, [])
         purchased_qty = float(purchased_map.get(p.id, 0))

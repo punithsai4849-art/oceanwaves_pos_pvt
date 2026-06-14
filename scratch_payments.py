@@ -20,7 +20,7 @@ def run():
     CreditRecord.objects.all().update(is_paid=False, paid_on=None)
     print("✅ Reset complete.")
 
-    # 1. Define payments list from the user's spreadsheet
+    # 1. Define payments list from the user's spreadsheet + original Greenland VM data
     payments_data = [
         # JK Restaurant Payments
         {'customer': 'JK Restaurant', 'amount': 530.0, 'date': '2026-06-02', 'note': 'Settle credit of 01-06'},
@@ -38,6 +38,9 @@ def run():
 
         # Supreme Restaurant Payments
         {'customer': 'Supreme Restaurant', 'amount': 100.0, 'date': '2026-06-02', 'note': 'Partial payment for 02-06'},
+
+        # Greenland Food Court Payments (Original VM data preserved)
+        {'customer': 'Green Land Food Court', 'amount': 440.0, 'date': '2026-06-08', 'note': 'Paid via phonepe'},
     ]
 
     print("📝 Inserting CreditPayments...")
@@ -47,7 +50,7 @@ def run():
         CreditPayment.objects.create(
             customer=customer,
             amount=Decimal(str(p['amount'])),
-            payment_mode='CASH',
+            payment_mode='CASH' if p['customer'] != 'Green Land Food Court' else 'UPI',
             note=p['note'],
             date=pay_date,
             created_by=admin_user
