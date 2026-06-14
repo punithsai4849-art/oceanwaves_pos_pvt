@@ -17,8 +17,8 @@ def _get_report_store(request, profile):
         store_id = request.GET.get('store_id') or request.POST.get('store_id')
         if store_id:
             return get_object_or_404(Store, id=store_id)
-        # Default to first active store
-        return Store.objects.filter(is_active=True).first()
+        # Default to first active store ordered by ID
+        return Store.objects.filter(is_active=True).order_by('id').first()
     return profile.store
 
 

@@ -17,7 +17,7 @@ def _get_fin_store(request, profile):
         store_id = request.GET.get('store_id') or request.POST.get('store_id')
         if store_id:
             return get_object_or_404(Store, id=store_id)
-        return Store.objects.filter(is_active=True).first()
+        return Store.objects.filter(is_active=True).order_by('id').first()
     return profile.store
 
 

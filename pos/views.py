@@ -1943,7 +1943,7 @@ def employee_add(request):
     # Superadmin can specify a store via POST; owner always uses their own store
     if profile.is_superadmin:
         store_id = request.POST.get('store_id') or request.GET.get('store_id')
-        store = get_object_or_404(Store, id=store_id) if store_id else Store.objects.filter(is_active=True).first()
+        store = get_object_or_404(Store, id=store_id) if store_id else Store.objects.filter(is_active=True).order_by('id').first()
     else:
         store = profile.store
 
