@@ -253,6 +253,15 @@ def asset_list_view(request):
         if not name or not cost:
             messages.error(request, 'Asset name and cost are required.')
         else:
+            if bill_pdf:
+                from .validators import validate_bill_file
+                is_valid, err_msg = validate_bill_file(bill_pdf)
+                if not is_valid:
+                    messages.error(request, err_msg)
+                    from django.urls import reverse
+                    base = reverse('asset_list_view')
+                    redirect_url = f"{base}?store_id={store.id}" if profile.is_superadmin else base
+                    return redirect(redirect_url)
             try:
                 StoreAsset.objects.create(
                     store         = store,
@@ -297,6 +306,13 @@ def asset_delete_view(request, asset_id):
     if not (profile.is_superadmin or profile.store == asset.store):
         messages.error(request, 'Access denied.')
         return redirect('asset_list_view')
+    import os
+    if asset.bill_pdf and hasattr(asset.bill_pdf, 'path'):
+        try:
+            if os.path.exists(asset.bill_pdf.path):
+                os.remove(asset.bill_pdf.path)
+        except Exception:
+            pass
     asset.delete()
     messages.success(request, 'Asset removed from register.')
     return redirect('asset_list_view')

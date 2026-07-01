@@ -67,8 +67,10 @@ urlpatterns = [
     # Daily & Monthly Reports
     path('reports/daily/',                views_reports.daily_report_view,     name='daily_report'),
     path('reports/monthly/',              views_reports.monthly_report_view,   name='monthly_report'),
+    path('reports/credits/',              views_reports.monthly_credits_report_view, name='monthly_credits_report'),
     path('reports/daily/export/',         views_reports.export_daily_excel,    name='export_daily_excel'),
     path('reports/monthly/export/',       views_reports.export_monthly_excel,  name='export_monthly_excel'),
+    path('reports/credits/export/',       views_reports.export_credits_excel,  name='export_credits_excel'),
 
     # Expenses
     path('expenses/',                          views.expenses_page,   name='expenses_page'),

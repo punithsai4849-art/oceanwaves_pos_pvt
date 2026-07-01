@@ -836,3 +836,238 @@ def export_monthly_excel(request):
     response['Content-Disposition'] = f'attachment; filename="monthly_report_{year}_{month:02d}.xlsx"'
     wb.save(response)
     return response
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  MONTHLY CREDITS REPORT
+# ══════════════════════════════════════════════════════════════════════════════
+@login_required
+@require_profile
+def monthly_credits_report_view(request):
+    profile = get_profile(request.user)
+    store   = _get_report_store(request, profile)
+
+    if not store:
+        messages.error(request, 'No store found.')
+        return redirect('dashboard')
+
+    if not (profile.is_superadmin or profile.is_owner or profile.is_subadmin or profile.is_area_manager or profile.is_wholesale_exec):
+        messages.error(request, 'Access denied.')
+        return redirect('dashboard')
+
+    month_str = request.GET.get('month', datetime.date.today().strftime('%Y-%m'))
+    try:
+        year, month = map(int, month_str.split('-'))
+    except ValueError:
+        year, month = datetime.date.today().year, datetime.date.today().month
+
+    m_start, m_end = _month_range(year, month)
+
+    from .models import CreditRecord, CreditPayment, Store
+    
+    # Fetch credit records created in this month
+    records_qs = CreditRecord.objects.filter(
+        created_at__range=(m_start, m_end)
+    ).select_related('customer', 'sale', 'sale__store')
+
+    # Fetch credit payments recorded in this month
+    payments_qs = CreditPayment.objects.filter(
+        date__range=(m_start.date(), m_end.date())
+    ).select_related('customer', 'customer__store')
+
+    # Apply store filters
+    if store:
+        records_qs = records_qs.filter(
+            Q(sale__store=store) | Q(sale__isnull=True, customer__store=store)
+        )
+        payments_qs = payments_qs.filter(customer__store=store)
+
+    # Sort/Get details
+    records = list(records_qs.order_by('created_at'))
+    payments = list(payments_qs.order_by('date', 'created_at'))
+
+    # Calculate summaries
+    total_credit_issued = sum(float(r.total_due) for r in records)
+    total_outstanding   = sum(float(r.total_due) for r in records if not r.is_paid)
+    total_payments      = sum(float(p.amount) for p in payments)
+
+    all_stores = Store.objects.filter(is_active=True) if profile.is_superadmin else None
+
+    return render(request, 'pos/reports_credits.html', {
+        'profile'            : profile,
+        'store'              : store,
+        'all_stores'         : all_stores,
+        'month_str'          : month_str,
+        'year'               : year,
+        'month'              : month,
+        'month_name'         : datetime.date(year, month, 1).strftime('%B %Y'),
+        'records'            : records,
+        'payments'           : payments,
+        'total_credit_issued': total_credit_issued,
+        'total_outstanding'  : total_outstanding,
+        'total_payments'     : total_payments,
+    })
+
+
+@login_required
+@require_profile
+def export_credits_excel(request):
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+
+    profile = get_profile(request.user)
+    store   = _get_report_store(request, profile)
+
+    if not store or not (profile.is_superadmin or profile.is_owner or profile.is_subadmin or profile.is_area_manager or profile.is_wholesale_exec):
+        return redirect('dashboard')
+
+    month_str = request.GET.get('month', datetime.date.today().strftime('%Y-%m'))
+    try:
+        year, month = map(int, month_str.split('-'))
+    except ValueError:
+        year, month = datetime.date.today().year, datetime.date.today().month
+
+    m_start, m_end = _month_range(year, month)
+    month_name = datetime.date(year, month, 1).strftime('%B %Y')
+
+    from .models import CreditRecord, CreditPayment
+    
+    # Fetch credit records created in this month
+    records_qs = CreditRecord.objects.filter(
+        created_at__range=(m_start, m_end)
+    ).select_related('customer', 'sale', 'sale__store')
+
+    # Fetch credit payments recorded in this month
+    payments_qs = CreditPayment.objects.filter(
+        date__range=(m_start.date(), m_end.date())
+    ).select_related('customer', 'customer__store')
+
+    # Apply store filters
+    if store:
+        records_qs = records_qs.filter(
+            Q(sale__store=store) | Q(sale__isnull=True, customer__store=store)
+        )
+        payments_qs = payments_qs.filter(customer__store=store)
+
+    records = list(records_qs.order_by('created_at'))
+    payments = list(payments_qs.order_by('date', 'created_at'))
+
+    total_credit_issued = sum(float(r.total_due) for r in records)
+    total_outstanding   = sum(float(r.total_due) for r in records if not r.is_paid)
+    total_payments      = sum(float(p.amount) for p in payments)
+
+    wb = openpyxl.Workbook()
+    
+    # Sheet 1: Credits Issued
+    ws_issued = wb.active
+    ws_issued.title = "Credits Issued"
+    
+    # Title
+    ws_issued.merge_cells('A1:H1')
+    c = ws_issued['A1']
+    c.value     = f"OCEANWAVES SEA FOODS — Monthly Credits Issued: {month_name}"
+    c.font      = Font(bold=True, size=14, color='1A5276', name='Calibri')
+    c.alignment = Alignment(horizontal='center')
+
+    ws_issued.merge_cells('A2:H2')
+    c2 = ws_issued['A2']
+    c2.value     = f"Store: {store.name}"
+    c2.font      = Font(bold=True, size=11, color='555555', name='Calibri')
+    c2.alignment = Alignment(horizontal='center')
+
+    headers_issued = ['S.No', 'Date Taken', 'Customer Name', 'Customer Code', 'Bill No. / Ref', 'Amount (₹)', 'Due Date', 'Status']
+    _style_header(ws_issued, 4, headers_issued, '1A5276')
+
+    alt_fill = PatternFill(start_color='EBF5FB', end_color='EBF5FB', fill_type='solid')
+    for idx, r in enumerate(records, 1):
+        row_num = idx + 4
+        ref = r.sale.bill_number if r.sale else r.external_reference
+        status = "Paid" if r.is_paid else "Unpaid"
+        date_str = r.created_at.strftime('%Y-%m-%d') if r.created_at else ''
+        due_str = r.due_date.strftime('%Y-%m-%d') if r.due_date else ''
+        data = [
+            idx,
+            date_str,
+            r.customer.name,
+            r.customer.customer_code,
+            ref,
+            float(r.total_due),
+            due_str,
+            status
+        ]
+        for col, val in enumerate(data, 1):
+            cell = ws_issued.cell(row=row_num, column=col, value=val)
+            cell.alignment = Alignment(horizontal='right' if col in [1, 6] else 'left')
+            if idx % 2 == 0:
+                cell.fill = alt_fill
+
+    summary_row = len(records) + 6
+    ws_issued.cell(row=summary_row, column=1, value='CREDIT SUMMARY').font = Font(bold=True, size=12, color='1A5276')
+    for i, (label, value) in enumerate([
+        ('Total Credits Issued (₹)', total_credit_issued),
+        ('Total Outstanding (₹)', total_outstanding),
+    ]):
+        r_num = summary_row + 1 + i
+        lc = ws_issued.cell(row=r_num, column=1, value=label)
+        lc.font = Font(bold=True)
+        lc.fill = PatternFill(start_color='D6EAF8', end_color='D6EAF8', fill_type='solid')
+        ws_issued.cell(row=r_num, column=2, value=value)
+
+    col_widths_issued = [6, 14, 28, 16, 16, 14, 14, 12]
+    for i, w in enumerate(col_widths_issued, 1):
+        ws_issued.column_dimensions[get_column_letter(i)].width = w
+
+    # Sheet 2: Payments Collected
+    ws_payments = wb.create_sheet(title="Payments Collected")
+    ws_payments.merge_cells('A1:G1')
+    cp = ws_payments['A1']
+    cp.value     = f"OCEANWAVES SEA FOODS — Monthly Payments Collected: {month_name}"
+    cp.font      = Font(bold=True, size=14, color='884EA0', name='Calibri')
+    cp.alignment = Alignment(horizontal='center')
+
+    ws_payments.merge_cells('A2:G2')
+    cp2 = ws_payments['A2']
+    cp2.value     = f"Store: {store.name}"
+    cp2.font      = Font(bold=True, size=11, color='555555', name='Calibri')
+    cp2.alignment = Alignment(horizontal='center')
+
+    headers_payments = ['S.No', 'Date Received', 'Customer Name', 'Customer Code', 'Payment Mode', 'Amount (₹)', 'Note']
+    _style_header(ws_payments, 4, headers_payments, '884EA0')
+
+    alt_fill_pay = PatternFill(start_color='F5EEF8', end_color='F5EEF8', fill_type='solid')
+    for idx, p in enumerate(payments, 1):
+        row_num = idx + 4
+        date_str = p.date.strftime('%Y-%m-%d') if p.date else ''
+        data = [
+            idx,
+            date_str,
+            p.customer.name,
+            p.customer.customer_code,
+            p.get_payment_mode_display(),
+            float(p.amount),
+            p.note
+        ]
+        for col, val in enumerate(data, 1):
+            cell = ws_payments.cell(row=row_num, column=col, value=val)
+            cell.alignment = Alignment(horizontal='right' if col in [1, 6] else 'left')
+            if idx % 2 == 0:
+                cell.fill = alt_fill_pay
+
+    pay_summary_row = len(payments) + 6
+    ws_payments.cell(row=pay_summary_row, column=1, value='PAYMENT SUMMARY').font = Font(bold=True, size=12, color='884EA0')
+    lc_pay = ws_payments.cell(row=pay_summary_row + 1, column=1, value='Total Payments Collected (₹)')
+    lc_pay.font = Font(bold=True)
+    lc_pay.fill = PatternFill(start_color='EBDEF0', end_color='EBDEF0', fill_type='solid')
+    ws_payments.cell(row=pay_summary_row + 1, column=2, value=total_payments)
+
+    col_widths_payments = [6, 14, 28, 16, 16, 14, 30]
+    for i, w in enumerate(col_widths_payments, 1):
+        ws_payments.column_dimensions[get_column_letter(i)].width = w
+
+    response = HttpResponse(
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    response['Content-Disposition'] = f'attachment; filename="credits_report_{year}_{month:02d}.xlsx"'
+    wb.save(response)
+    return response

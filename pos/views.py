@@ -1687,12 +1687,10 @@ def expense_add(request):
         
         bill = request.FILES.get('bill_pdf')
         if bill:
-            import magic
-            file_magic = magic.from_buffer(bill.read(2048), mime=True)
-            bill.seek(0)
-            allowed_mimes = ['application/pdf', 'image/jpeg', 'image/png']
-            if file_magic not in allowed_mimes:
-                messages.error(request, 'Invalid file type. Only PDF, JPG, PNG are allowed.')
+            from .validators import validate_bill_file
+            is_valid, err_msg = validate_bill_file(bill)
+            if not is_valid:
+                messages.error(request, err_msg)
                 return redirect('expenses_page')
             exp.bill_pdf = bill
             
@@ -1756,12 +1754,10 @@ def expense_add(request):
         
         bill = request.FILES.get('bill_pdf')
         if bill:
-            import magic
-            file_magic = magic.from_buffer(bill.read(2048), mime=True)
-            bill.seek(0)
-            allowed_mimes = ['application/pdf', 'image/jpeg', 'image/png']
-            if file_magic not in allowed_mimes:
-                messages.error(request, 'Invalid file type. Only PDF, JPG, PNG are allowed.')
+            from .validators import validate_bill_file
+            is_valid, err_msg = validate_bill_file(bill)
+            if not is_valid:
+                messages.error(request, err_msg)
                 return redirect('expenses_page')
             exp.bill_pdf = bill
             
@@ -2932,12 +2928,17 @@ def credits_list(request):
 
     customer_summaries.sort(key=lambda x: x['balance'], reverse=True)
 
+    total_credit_all = sum(item['total_amount'] for item in customer_summaries)
+    total_balance_all = sum(item['balance'] for item in customer_summaries)
+
     return render(request, 'pos/credits_list.html', {
         'summaries': customer_summaries,
         'stores': stores,
         'profile': profile,
         'q': q_search,
         'store_filter': store_filter,
+        'total_credit_all': total_credit_all,
+        'total_balance_all': total_balance_all,
     })
 
 

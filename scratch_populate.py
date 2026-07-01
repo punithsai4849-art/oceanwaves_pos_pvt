@@ -106,7 +106,6 @@ def run():
         {'date': '2026-06-11', 'type': 'CREDIT', 'customer': 'Harsha Food Ex', 'product_id': 21, 'qty': 2.0, 'price': 450.0},
 
         # 13-06-2026
-        {'date': '2026-06-13', 'type': 'CREDIT', 'customer': 'anandh restaurant', 'product_id': 24, 'qty': 10.0, 'price': 200.0},
         {'date': '2026-06-13', 'type': 'CREDIT', 'customer': 'JK Restaurant', 'product_id': 21, 'qty': 2.0, 'price': 450.0},
         {'date': '2026-06-13', 'type': 'CREDIT', 'customer': 'Green Land Food Court', 'product_id': 24, 'qty': 2.0, 'price': 220.0}, # Preserved
     ]

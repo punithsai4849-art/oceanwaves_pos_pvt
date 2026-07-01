@@ -567,5 +567,120 @@ class UserManagementTestCase(TestCase):
         self.assertFalse(UserProfile.objects.filter(id=self.target_profile.id).exists())
 
 
+from django.core.files.uploadedfile import SimpleUploadedFile
+from pos.validators import validate_bill_file
+
+class BillUploadTestCase(TestCase):
+    def test_validation_allowed_extensions(self):
+        # Test valid extensions
+        valid_files = [
+            ('test.pdf', 'application/pdf'),
+            ('test.jpg', 'image/jpeg'),
+            ('test.jpeg', 'image/jpeg'),
+            ('test.png', 'image/png'),
+            ('test.webp', 'image/webp'),
+            ('test.doc', 'application/msword'),
+            ('test.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'),
+        ]
+        for name, mime in valid_files:
+            uploaded_file = SimpleUploadedFile(name, b"dummy content", content_type=mime)
+            is_valid, err_msg = validate_bill_file(uploaded_file)
+            self.assertTrue(is_valid, f"Expected {name} to be valid: {err_msg}")
+
+    def test_validation_disallowed_extensions(self):
+        # Test invalid extensions
+        invalid_files = [
+            ('test.exe', 'application/octet-stream'),
+            ('test.txt', 'text/plain'),
+            ('test.html', 'text/html'),
+            ('test.zip', 'application/zip'),
+        ]
+        for name, mime in invalid_files:
+            uploaded_file = SimpleUploadedFile(name, b"dummy content", content_type=mime)
+            is_valid, err_msg = validate_bill_file(uploaded_file)
+            self.assertFalse(is_valid, f"Expected {name} to be invalid")
+            self.assertIn("Invalid file extension", err_msg)
+
+    def test_validation_fallback_matching_mime(self):
+        # Test fallback guess mechanism
+        uploaded_file = SimpleUploadedFile('test.pdf', b"dummy content", content_type='application/octet-stream')
+        is_valid, err = validate_bill_file(uploaded_file)
+        self.assertTrue(is_valid, f"Expected fallback guess to allow valid extension with octet-stream mime: {err}")
+
+        # Invalid guessed type
+        uploaded_file = SimpleUploadedFile('test.exe', b"dummy content", content_type='image/png')
+        is_valid, err = validate_bill_file(uploaded_file)
+        self.assertFalse(is_valid, "Expected invalid extension to fail even with mismatched allowed mime type")
+
+
+class CreditsReportTestCase(TestCase):
+    def setUp(self):
+        # Create user
+        self.user = User.objects.create_user(username='testowner2', password='password123')
+        # Create store
+        self.store = Store.objects.create(name='Test Store 2', is_active=True)
+        # Create profile
+        self.profile = UserProfile.objects.create(
+            user=self.user,
+            role='OWNER',
+            store=self.store,
+            is_active=True
+        )
+        # Create customer
+        self.customer = WholesaleCustomer.objects.create(
+            name='Test Wholesale Customer',
+            phone='1234567890',
+            store=self.store,
+            is_credit_enabled=True,
+            customer_code='OW-TEST-001'
+        )
+        # Create credit record
+        self.credit = CreditRecord.objects.create(
+            customer=self.customer,
+            amount=Decimal('1500.00'),
+            is_external=True,
+            due_date=timezone.now().date(),
+            is_paid=False
+        )
+        # Create credit payment
+        self.payment = CreditPayment.objects.create(
+            customer=self.customer,
+            amount=Decimal('500.00'),
+            payment_mode='CASH',
+            date=timezone.now().date()
+        )
+        self.client = Client()
+
+    def test_credits_list_kpis(self):
+        self.client.login(username='testowner2', password='password123')
+        response = self.client.get('/credits/')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('total_credit_all', response.context)
+        self.assertIn('total_balance_all', response.context)
+        # total_credit_all is 1500, total_balance_all is 1500 - 500 = 1000
+        self.assertEqual(float(response.context['total_credit_all']), 1500.00)
+        self.assertEqual(float(response.context['total_balance_all']), 1000.00)
+
+    def test_monthly_credits_report_view(self):
+        self.client.login(username='testowner2', password='password123')
+        response = self.client.get('/reports/credits/')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('total_credit_issued', response.context)
+        self.assertIn('total_outstanding', response.context)
+        self.assertIn('total_payments', response.context)
+        self.assertEqual(float(response.context['total_credit_issued']), 1500.00)
+        self.assertEqual(float(response.context['total_outstanding']), 1500.00) # Since the credit is unpaid
+        self.assertEqual(float(response.context['total_payments']), 500.00)
+
+    def test_export_credits_excel(self):
+        self.client.login(username='testowner2', password='password123')
+        response = self.client.get('/reports/credits/export/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        self.assertTrue(response.has_header('Content-Disposition'))
+
+
+
+
 
 
