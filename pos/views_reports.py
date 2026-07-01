@@ -888,8 +888,8 @@ def monthly_credits_report_view(request):
 
     # Calculate summaries
     total_credit_issued = sum(float(r.total_due) for r in records)
-    total_outstanding   = sum(float(r.total_due) for r in records if not r.is_paid)
     total_payments      = sum(float(p.amount) for p in payments)
+    total_outstanding   = total_credit_issued - total_payments
 
     all_stores = Store.objects.filter(is_active=True) if profile.is_superadmin else None
 
@@ -954,8 +954,8 @@ def export_credits_excel(request):
     payments = list(payments_qs.order_by('date', 'created_at'))
 
     total_credit_issued = sum(float(r.total_due) for r in records)
-    total_outstanding   = sum(float(r.total_due) for r in records if not r.is_paid)
     total_payments      = sum(float(p.amount) for p in payments)
+    total_outstanding   = total_credit_issued - total_payments
 
     wb = openpyxl.Workbook()
     

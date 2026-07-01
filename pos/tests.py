@@ -669,7 +669,7 @@ class CreditsReportTestCase(TestCase):
         self.assertIn('total_outstanding', response.context)
         self.assertIn('total_payments', response.context)
         self.assertEqual(float(response.context['total_credit_issued']), 1500.00)
-        self.assertEqual(float(response.context['total_outstanding']), 1500.00) # Since the credit is unpaid
+        self.assertEqual(float(response.context['total_outstanding']), 1000.00) # Since 500 has been paid
         self.assertEqual(float(response.context['total_payments']), 500.00)
 
     def test_export_credits_excel(self):
