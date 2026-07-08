@@ -1,34 +1,80 @@
 {% extends 'pos/base.html' %}
 {% block title %}Credit Detail — {{ customer.name }}{% endblock %}
+
+{% block extra_css %}
+<style>
+  /* ── Customer header ─────────────────────────────────────── */
+  .customer-header { background: white; border-radius: 12px; padding: 24px; box-shadow: var(--shadow); margin-bottom: 24px; display: flex; justify-content: space-between; align-items: flex-start; border-left: 6px solid #27A4D1; }
+  .ch-info h1 { font-size: 28px; margin-bottom: 4px; color: #0f2d3d; }
+  .ch-info p { color: #64748b; font-size: 14px; margin: 2px 0; }
+  .ch-stats { text-align: right; }
+  .stat-box { background: #f8fafc; padding: 12px 20px; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 8px; min-width: 180px; }
+  .stat-label { font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 700; }
+  .stat-value { font-size: 20px; font-weight: 800; color: #0f2d3d; }
+  .stat-value.red { color: #b91c1c; }
+
+  /* ── Qty KPI cards ───────────────────────────────────────── */
+  .qty-kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 20px; }
+  .qty-kpi { background: white; border-radius: 12px; padding: 18px 20px; box-shadow: var(--shadow); display: flex; align-items: center; gap: 14px; border-left: 4px solid #0891b2; }
+  .qty-kpi.teal  { border-left-color: #0891b2; }
+  .qty-kpi.amber { border-left-color: #d97706; }
+  .qty-kpi.life  { border-left-color: #7c3aed; }
+  .qty-kpi-icon { width: 46px; height: 46px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 19px; }
+  .qty-kpi.teal  .qty-kpi-icon { background: #e0f2fe; color: #0891b2; }
+  .qty-kpi.amber .qty-kpi-icon { background: #fef3c7; color: #d97706; }
+  .qty-kpi.life  .qty-kpi-icon { background: #ede9fe; color: #7c3aed; }
+  .qty-kpi-val { font-size: 1.45rem; font-weight: 800; color: #0f2d3d; line-height: 1.2; }
+  .qty-kpi-lbl { font-size: 11px; color: #64748b; font-weight: 600; margin-top: 3px; }
+  .qty-kpi-sub { font-size: 10px; color: #94a3b8; margin-top: 2px; }
+
+  /* ── Date filter bar ─────────────────────────────────────── */
+  .filter-bar { background: white; border-radius: 12px; padding: 16px 20px; box-shadow: var(--shadow); margin-bottom: 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+  .filter-bar label { font-size: 12px; font-weight: 700; color: #475569; }
+  .filter-bar input[type="date"] { padding: 7px 10px; border-radius: 6px; border: 1px solid #cbd5e1; font-size: 13px; color: #0f2d3d; font-family: inherit; }
+  .preset-btn { padding: 6px 13px; border-radius: 20px; border: 1px solid #cbd5e1; background: #f8fafc; font-size: 12px; font-weight: 600; color: #475569; cursor: pointer; transition: all 0.15s; }
+  .preset-btn:hover { background: #e0f2fe; border-color: #7dd3fc; color: #0369a1; }
+  .preset-btn.active { background: #0891b2; border-color: #0891b2; color: white; }
+  .filter-apply-btn { padding: 7px 18px; border-radius: 6px; background: #0f2d3d; color: white; border: none; font-size: 13px; font-weight: 700; cursor: pointer; transition: background 0.15s; }
+  .filter-apply-btn:hover { background: #1e5272; }
+  .filter-badge { display: inline-flex; align-items: center; gap: 6px; background: #dbeafe; color: #1d4ed8; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; }
+  .filter-badge a { color: #1d4ed8; text-decoration: none; font-weight: 800; }
+
+  /* ── Ledger table ────────────────────────────────────────── */
+  .transaction-card { background: white; border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; margin-bottom: 24px; }
+  .ledger-table { width: 100%; border-collapse: collapse; }
+  .ledger-table thead th { background: #0f2d3d; color: white; padding: 12px 15px; text-align: left; font-size: 12px; }
+  .ledger-table tbody td { padding: 14px 15px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
+  .type-badge { padding: 4px 8px; border-radius: 4px; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+  .type-credit  { background: #fee2e2; color: #b91c1c; }
+  .type-payment { background: #dcfce7; color: #15803d; }
+  .ledger-amt { font-weight: 700; font-size: 15px; }
+  .positive { color: #15803d; }
+
+  /* ── Item breakdown inside a credit row ──────────────────── */
+  .item-breakdown { margin-top: 10px; border-radius: 8px; overflow: hidden; border: 1px solid #e2e8f0; font-size: 12px; }
+  .item-breakdown-hdr { background: #f1f5f9; display: grid; grid-template-columns: 1fr 90px 90px 90px; padding: 5px 10px; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase; gap: 6px; }
+  .item-breakdown-row { display: grid; grid-template-columns: 1fr 90px 90px 90px; padding: 7px 10px; border-top: 1px solid #f1f5f9; gap: 6px; color: #374151; transition: background 0.1s; }
+  .item-breakdown-row:hover { background: #f8fafc; }
+  .item-breakdown-row span { display: flex; align-items: center; }
+  .item-breakdown-row .qty-pill { background: #dbeafe; color: #1d4ed8; border-radius: 4px; padding: 2px 7px; font-weight: 700; font-size: 11px; }
+  .item-breakdown-footer { background: #0f2d3d; color: white; display: flex; justify-content: space-between; padding: 7px 10px; font-size: 12px; font-weight: 700; }
+
+  /* ── Other ───────────────────────────────────────────────── */
+  .action-panel { display: flex; gap: 12px; margin-bottom: 24px; }
+  .payment-form { background: #eff6ff; padding: 20px; border-radius: 12px; border: 1.5px solid #bfdbfe; margin-top: 24px; }
+
+  @media(max-width:768px) {
+    .customer-header { flex-direction: column; }
+    .ch-stats { text-align: left; width: 100%; }
+    .item-breakdown-hdr, .item-breakdown-row { grid-template-columns: 1fr 70px 70px 70px; font-size: 11px; }
+  }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="pg">
-  <style>
-    .customer-header { background: white; border-radius: 12px; padding: 24px; box-shadow: var(--shadow); margin-bottom: 24px; display: flex; justify-content: space-between; align-items: flex-start; border-left: 6px solid #27A4D1; }
-    .ch-info h1 { font-size: 28px; margin-bottom: 4px; color: #0f2d3d; }
-    .ch-info p { color: #64748b; font-size: 14px; margin: 2px 0; }
-    .ch-stats { text-align: right; }
-    .stat-box { background: #f8fafc; padding: 12px 20px; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 8px; min-width: 180px; }
-    .stat-label { font-size: 11px; text-transform: uppercase; color: #64748b; font-weight: 700; }
-    .stat-value { font-size: 20px; font-weight: 800; color: #0f2d3d; }
-    .stat-value.red { color: #b91c1c; }
 
-    .transaction-card { background: white; border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; margin-bottom: 24px; }
-    .ledger-table { width: 100%; border-collapse: collapse; }
-    .ledger-table thead th { background: #0f2d3d; color: white; padding: 12px 15px; text-align: left; font-size: 12px; }
-    .ledger-table tbody td { padding: 15px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
-    .type-badge { padding: 4px 8px; border-radius: 4px; font-size: 10px; font-weight: 800; text-transform: uppercase; }
-    .type-credit { background: #fee2e2; color: #b91c1c; }
-    .type-payment { background: #dcfce7; color: #15803d; }
-    
-    .item-list { font-size: 12px; color: #4b5563; margin-top: 8px; }
-    .item-row { display: flex; justify-content: space-between; padding: 2px 0; border-bottom: 1px dashed #e2e8f0; }
-    .item-row:last-child { border-bottom: none; }
-    .ledger-amt { font-weight: 700; font-size: 15px; }
-
-    .action-panel { display: flex; gap: 12px; margin-bottom: 24px; }
-    .payment-form { background: #eff6ff; padding: 20px; border-radius: 12px; border: 1.5px solid #bfdbfe; margin-top: 24px; }
-  </style>
-
+  <!-- Page header -->
   <div class="pg-header">
     <div style="display:flex; align-items:center; gap:12px;">
       <a href="{% url 'credits_list' %}" class="btn-secondary" style="padding: 10px 14px;"><i class="fas fa-arrow-left"></i></a>
@@ -38,14 +84,15 @@
       </div>
     </div>
     <div class="action-panel">
-        <button onclick="window.print()" class="btn-secondary"><i class="fas fa-print"></i> Print Statement</button>
-        <a href="https://wa.me/{{ customer.phone }}?text=Hello {{ customer.name }}, your outstanding balance at OCEANWAVES is ₹{{ customer.balance }}. Details: ..." 
-           target="_blank" class="btn-primary" style="background:#25D366; border-color:#25D366; text-decoration:none;">
-           <i class="fab fa-whatsapp"></i> Share Summary
-        </a>
+      <button onclick="window.print()" class="btn-secondary"><i class="fas fa-print"></i> Print Statement</button>
+      <a href="https://wa.me/{{ customer.phone }}?text=Hello {{ customer.name }}, your outstanding balance at OCEANWAVES is ₹{{ customer.balance }}. Details: ..."
+         target="_blank" class="btn-primary" style="background:#25D366; border-color:#25D366; text-decoration:none;">
+         <i class="fab fa-whatsapp"></i> Share Summary
+      </a>
     </div>
   </div>
 
+  <!-- Customer header card -->
   <div class="customer-header">
     <div class="ch-info">
       <h1>{{ customer.name }}</h1>
@@ -71,6 +118,70 @@
     </div>
   </div>
 
+  <!-- Restaurant Quantity Statistics ──────────────────────────────────────── -->
+  <div style="margin-bottom:8px; display:flex; align-items:center; gap:8px;">
+    <h3 style="margin:0; font-size:15px; color:#0f2d3d;"><i class="fas fa-balance-scale" style="color:#0891b2;"></i> Order Quantity Statistics</h3>
+    {% if is_filtered %}
+    <span class="filter-badge">
+      <i class="fas fa-filter"></i>
+      Filtered:
+      {% if from_date %}{{ from_date }}{% endif %}
+      {% if from_date and to_date %} → {% endif %}
+      {% if to_date %}{{ to_date }}{% endif %}
+      &nbsp;<a href="?">✕ Clear</a>
+    </span>
+    {% endif %}
+  </div>
+
+  <div class="qty-kpi-row">
+    <div class="qty-kpi teal">
+      <div class="qty-kpi-icon"><i class="fas fa-weight"></i></div>
+      <div>
+        <div class="qty-kpi-val">{{ total_qty_kg|floatformat:3 }} kg</div>
+        <div class="qty-kpi-lbl">Total Qty Ordered{% if is_filtered %} (Filtered){% endif %}</div>
+        {% if is_filtered %}
+        <div class="qty-kpi-sub">Lifetime: {{ lifetime_total_qty_kg|floatformat:3 }} kg</div>
+        {% endif %}
+      </div>
+    </div>
+    <div class="qty-kpi amber">
+      <div class="qty-kpi-icon"><i class="fas fa-chart-line"></i></div>
+      <div>
+        <div class="qty-kpi-val">{{ avg_qty_per_month_kg|floatformat:3 }} kg</div>
+        <div class="qty-kpi-lbl">Avg Qty / Month{% if is_filtered %} (Filtered){% endif %}</div>
+        {% if is_filtered %}
+        <div class="qty-kpi-sub">Lifetime avg: {{ lifetime_avg_qty_per_month_kg|floatformat:3 }} kg/month</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Date range filter bar ─────────────────────────────────────────────── -->
+  <div class="filter-bar">
+    <i class="fas fa-calendar-alt" style="color:#64748b;"></i>
+    <span style="font-size:12px; font-weight:700; color:#64748b;">Filter Period:</span>
+    <form method="GET" style="display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:0;" id="dateFilterForm">
+      <div style="display:flex; align-items:center; gap:6px;">
+        <label for="from_date">From</label>
+        <input type="date" id="from_date" name="from_date" value="{{ from_date }}" onchange="document.getElementById('dateFilterForm').submit()">
+      </div>
+      <div style="display:flex; align-items:center; gap:6px;">
+        <label for="to_date">To</label>
+        <input type="date" id="to_date" name="to_date" value="{{ to_date }}" onchange="document.getElementById('dateFilterForm').submit()">
+      </div>
+      <button type="submit" class="filter-apply-btn"><i class="fas fa-search"></i> Apply</button>
+    </form>
+
+    <div style="display:flex; flex-wrap:wrap; gap:7px; margin-left:auto;">
+      <button class="preset-btn {% if not is_filtered %}active{% endif %}" onclick="resetFilter()">All Time</button>
+      <button class="preset-btn" onclick="setPreset('this_month')">This Month</button>
+      <button class="preset-btn" onclick="setPreset('last_30')">Last 30 Days</button>
+      <button class="preset-btn" onclick="setPreset('last_90')">Last 90 Days</button>
+      <button class="preset-btn" onclick="setPreset('last_6m')">Last 6 Months</button>
+    </div>
+  </div>
+
+  <!-- Ledger table ─────────────────────────────────────────────────────── -->
   <div class="transaction-card">
     <table class="ledger-table">
       <thead>
@@ -89,7 +200,10 @@
         {% for entry in ledger %}
         <tr>
           <td>{{ forloop.counter }}</td>
-          <td>{{ entry.date|date:"d-m-Y" }}{% if entry.type == 'CREDIT' %}<br><small style="color:#94a3b8;">{{ entry.date|date:"h:i A" }}</small>{% endif %}</td>
+          <td>
+            {{ entry.date|date:"d-m-Y" }}
+            {% if entry.type == 'CREDIT' %}<br><small style="color:#94a3b8;">{{ entry.date|date:"h:i A" }}</small>{% endif %}
+          </td>
           <td>
             <span class="type-badge {% if entry.type == 'CREDIT' %}type-credit{% else %}type-payment{% endif %}">
               {{ entry.type }}
@@ -97,17 +211,35 @@
           </td>
           <td>
             <strong style="color:#1e293b;">{{ entry.ref }}</strong>
-            {% if entry.items %}
-            <div class="item-list">
-              {% for itm in entry.items %}
-              <div class="item-row">
-                <span>{{ itm.product_name }}</span>
-                <span>₹{{ itm.selling_price }}</span>
-              </div>
-              {% endfor %}
-              <div style="text-align:right; font-weight:700; padding-top:4px;">Total ₹{{ entry.amount }}</div>
-            </div>
+
+            {% if entry.type == 'CREDIT' %}
+              {% if entry.items %}
+                <!-- Itemised product breakdown -->
+                <div class="item-breakdown">
+                  <div class="item-breakdown-hdr">
+                    <span>Product</span>
+                    <span style="text-align:right;">Qty (kg)</span>
+                    <span style="text-align:right;">Rate (₹)</span>
+                    <span style="text-align:right;">Amount (₹)</span>
+                  </div>
+                  {% for itm in entry.items %}
+                  <div class="item-breakdown-row">
+                    <span style="font-weight:600; color:#1e293b;">{{ itm.product_name }}</span>
+                    <span style="justify-content:flex-end;"><span class="qty-pill">{{ itm.quantity|floatformat:3 }}</span></span>
+                    <span style="justify-content:flex-end; color:#374151;">{{ itm.selling_price|floatformat:2 }}</span>
+                    <span style="justify-content:flex-end; font-weight:700; color:#0f2d3d;">{{ itm.total_amount|floatformat:2 }}</span>
+                  </div>
+                  {% endfor %}
+                  <div class="item-breakdown-footer">
+                    <span><i class="fas fa-boxes"></i> {{ entry.items|length }} item{{ entry.items|length|pluralize }}</span>
+                    <span>Total: ₹{{ entry.amount|floatformat:2 }}</span>
+                  </div>
+                </div>
+              {% else %}
+                <div style="font-size:11px; color:#94a3b8; margin-top:4px; font-style:italic;">External credit — no itemised details</div>
+              {% endif %}
             {% endif %}
+
             {% if entry.obj.note %}
             <div style="font-size:11px; font-style:italic; color:#64748b; margin-top:5px;">Note: {{ entry.obj.note }}</div>
             {% endif %}
@@ -136,13 +268,17 @@
           {% endif %}
         </tr>
         {% empty %}
-        <tr><td colspan="{% if profile.is_superadmin %}6{% else %}5{% endif %}" style="text-align:center; padding:40px; color:#64748b;">No transaction history found.</td></tr>
+        <tr>
+          <td colspan="{% if profile.is_superadmin %}6{% else %}5{% endif %}" style="text-align:center; padding:40px; color:#64748b;">
+            No transaction history found{% if is_filtered %} for the selected date range{% endif %}.
+          </td>
+        </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
 
-  <!-- Record Payment Modal-like Form -->
+  <!-- Record Payment form ─────────────────────────────────────────────── -->
   <div class="payment-form">
     <h3 style="margin-bottom:15px; color:#1e40af;"><i class="fas fa-hand-holding-usd"></i> Record a Payment</h3>
     <form method="POST" action="{% url 'record_credit_payment' customer.id %}" style="display:flex; flex-wrap:wrap; gap:15px; align-items:flex-end;">
@@ -171,11 +307,13 @@
       <button type="submit" class="btn-primary" style="padding:10px 25px;"><i class="fas fa-check"></i> Save Payment</button>
     </form>
   </div>
+
 </div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
+  // ── Default payment date ──────────────────────────────────
   document.addEventListener('DOMContentLoaded', function() {
     const pmtDate = document.getElementById('pmtDate');
     if (pmtDate) {
@@ -185,5 +323,41 @@
       pmtDate.value = localDate.toISOString().split('T')[0];
     }
   });
+
+  // ── Quick filter presets ──────────────────────────────────
+  function isoDate(d) {
+    const off = d.getTimezoneOffset();
+    const local = new Date(d.getTime() - off * 60000);
+    return local.toISOString().split('T')[0];
+  }
+
+  function setPreset(preset) {
+    const today = new Date();
+    let from, to = isoDate(today);
+
+    if (preset === 'this_month') {
+      const d = new Date(today.getFullYear(), today.getMonth(), 1);
+      from = isoDate(d);
+    } else if (preset === 'last_30') {
+      const d = new Date(today); d.setDate(d.getDate() - 29);
+      from = isoDate(d);
+    } else if (preset === 'last_90') {
+      const d = new Date(today); d.setDate(d.getDate() - 89);
+      from = isoDate(d);
+    } else if (preset === 'last_6m') {
+      const d = new Date(today); d.setMonth(d.getMonth() - 6);
+      from = isoDate(d);
+    }
+
+    document.getElementById('from_date').value = from;
+    document.getElementById('to_date').value   = to;
+    document.getElementById('dateFilterForm').submit();
+  }
+
+  function resetFilter() {
+    document.getElementById('from_date').value = '';
+    document.getElementById('to_date').value   = '';
+    document.getElementById('dateFilterForm').submit();
+  }
 </script>
 {% endblock %}

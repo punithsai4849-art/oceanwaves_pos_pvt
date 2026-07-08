@@ -2947,8 +2947,11 @@ def credits_list(request):
 def customer_credit_detail(request, customer_id):
     profile = get_profile(request.user)
     from .models import WholesaleCustomer, CreditRecord, CreditPayment
+    import datetime as dt_mod
+    from django.utils import timezone
+    from decimal import Decimal
     customer = get_object_or_404(WholesaleCustomer, id=customer_id)
-    
+
     # Access control
     if not profile.is_superadmin:
         if profile.is_area_manager or profile.is_wholesale_exec:
@@ -2964,39 +2967,105 @@ def customer_credit_detail(request, customer_id):
             messages.error(request, 'Access denied.')
             return redirect('credits_list')
 
-    records = list(customer.credit_records.select_related('sale').prefetch_related('sale__items').order_by('-created_at'))
-    payments = list(customer.payments.order_by('-date', '-created_at'))
-    
+    # ── Date range filter ────────────────────────────────────────────────────
+    from_date_str = request.GET.get('from_date', '')
+    to_date_str   = request.GET.get('to_date', '')
+    try:
+        from_date = dt_mod.date.fromisoformat(from_date_str) if from_date_str else None
+    except ValueError:
+        from_date = None
+    try:
+        to_date = dt_mod.date.fromisoformat(to_date_str) if to_date_str else None
+    except ValueError:
+        to_date = None
+
+    if from_date:
+        range_start = timezone.make_aware(dt_mod.datetime.combine(from_date, dt_mod.time.min))
+    else:
+        range_start = None
+    if to_date:
+        range_end = timezone.make_aware(dt_mod.datetime.combine(to_date, dt_mod.time.max))
+    else:
+        range_end = None
+
+    # ── Fetch all records & payments for this customer ───────────────────────
+    all_records  = list(customer.credit_records.select_related('sale').prefetch_related('sale__items').order_by('-created_at'))
+    all_payments = list(customer.payments.order_by('-date', '-created_at'))
+
+    # ── Filter by date range ─────────────────────────────────────────────────
+    def _in_range(dt_aware):
+        if range_start and dt_aware < range_start:
+            return False
+        if range_end and dt_aware > range_end:
+            return False
+        return True
+
+    filtered_records  = [r for r in all_records  if _in_range(r.created_at)]
+    filtered_payments = [p for p in all_payments if _in_range(
+        timezone.make_aware(dt_mod.datetime.combine(p.date, dt_mod.time.min))
+    )]
+
+    active_records  = filtered_records  if (range_start or range_end) else all_records
+    active_payments = filtered_payments if (range_start or range_end) else all_payments
+
+    # ── Build ledger ─────────────────────────────────────────────────────────
     ledger = []
-    for r in records:
+    for r in active_records:
         ledger.append({
             'type': 'CREDIT',
             'date': r.created_at,
             'amount': r.total_due,
             'ref': r.sale.bill_number if r.sale else r.external_reference,
             'obj': r,
-            'items': r.sale.items.all() if r.sale else []
+            'items': list(r.sale.items.all()) if r.sale else []
         })
-    for p in payments:
-        import datetime
-        from django.utils import timezone
-        dt = timezone.make_aware(datetime.datetime.combine(p.date, datetime.time.min))
+    for p in active_payments:
+        pdt = timezone.make_aware(dt_mod.datetime.combine(p.date, dt_mod.time.min))
         ledger.append({
             'type': 'PAYMENT',
-            'date': dt,
+            'date': pdt,
             'amount': p.amount,
             'ref': f"PMT-{p.id}",
             'obj': p,
             'items': []
         })
-    
-    # Sort ledger by date newest first
+
     ledger.sort(key=lambda x: x['date'], reverse=True)
+
+    # ── Quantity statistics helper ───────────────────────────────────────────
+    def _qty_stats(records):
+        total_qty = Decimal('0')
+        monthly_qtys = {}
+        for r in records:
+            if not r.sale:
+                continue
+            for itm in r.sale.items.all():
+                total_qty += itm.quantity
+                key = (r.created_at.year, r.created_at.month)
+                monthly_qtys[key] = monthly_qtys.get(key, Decimal('0')) + itm.quantity
+        num_months = len(monthly_qtys) or 1
+        avg_qty = (total_qty / num_months).quantize(Decimal('0.001'))
+        return total_qty, avg_qty
+
+    lifetime_total_qty, lifetime_avg_qty = _qty_stats(all_records)
+
+    if (range_start or range_end):
+        filtered_total_qty, filtered_avg_qty = _qty_stats(active_records)
+    else:
+        filtered_total_qty = lifetime_total_qty
+        filtered_avg_qty   = lifetime_avg_qty
 
     return render(request, 'pos/customer_credit_detail.html', {
         'customer': customer,
         'ledger': ledger,
-        'profile': profile
+        'profile': profile,
+        'from_date': from_date_str,
+        'to_date': to_date_str,
+        'is_filtered': bool(range_start or range_end),
+        'total_qty_kg': filtered_total_qty,
+        'avg_qty_per_month_kg': filtered_avg_qty,
+        'lifetime_total_qty_kg': lifetime_total_qty,
+        'lifetime_avg_qty_per_month_kg': lifetime_avg_qty,
     })
 
 
